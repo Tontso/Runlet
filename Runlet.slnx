@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="Runlet.Api/Runlet.Api.csproj" />
+  <Project Path="Runlet.Shared/Runlet.Shared.csproj" />
+  <Project Path="Runlet.Worker/Runlet.Worker.csproj" />
+</Solution>

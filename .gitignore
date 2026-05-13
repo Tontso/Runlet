@@ -1,0 +1,53 @@
+# Build output
+bin/
+obj/
+artifacts/
+
+# .NET generated files
+*.user
+*.suo
+*.rsuser
+*.cache
+*.pdb
+*.mdb
+TestResults/
+coverage/
+coverage.*
+
+# IDEs and editors
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Rider
+*.sln.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+secrets.json
+appsettings.Local.json
+appsettings.*.Local.json
+
+# Docker/local runtime state
+docker-compose.override.yml
+.docker/
+
+# NuGet
+*.nupkg
+packages/
+
+# Publish output
+publish/
+*.Publish.xml
