@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Runlet.Shared.Executions;
 
 namespace Runlet.Worker.Execution;
 
@@ -55,7 +56,10 @@ public sealed class DockerWorkflowStepExecutor : IWorkflowStepExecutor
 
         var outputLines = stdout
             .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
-            .Concat(stderr.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries))
+            .Select(line => new StepOutputLine(WorkflowLogKind.Stdout, line))
+            .Concat(stderr
+                .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => new StepOutputLine(WorkflowLogKind.Stderr, line)))
             .ToList();
 
         return new StepExecutionResult(process.ExitCode, outputLines);

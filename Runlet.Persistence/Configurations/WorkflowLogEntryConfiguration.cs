@@ -24,6 +24,12 @@ public sealed class WorkflowLogEntryConfiguration : IEntityTypeConfiguration<Wor
         builder.Property(log => log.CreatedAt)
             .HasColumnName("created_at");
 
+        builder.Property(log => log.Kind)
+            .HasColumnName("kind")
+            .HasConversion<string>()
+            .HasMaxLength(50)
+            .IsRequired();
+
         builder.Property(log => log.Message)
             .HasColumnName("message")
             .IsRequired();

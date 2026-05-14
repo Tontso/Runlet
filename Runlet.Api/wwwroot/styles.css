@@ -331,6 +331,45 @@ textarea {
   color: #e5e7eb;
   padding: 12px;
   line-height: 1.5;
+}
+
+.log-line {
+  display: grid;
+  grid-template-columns: 74px 58px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.log-time {
+  color: #9ca3af;
+}
+
+.log-kind {
+  border-radius: 4px;
+  padding: 0 5px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.log-kind.System {
+  background: #374151;
+  color: #e5e7eb;
+}
+
+.log-kind.Stdout {
+  background: #064e3b;
+  color: #d1fae5;
+}
+
+.log-kind.Stderr {
+  background: #7f1d1d;
+  color: #fee2e2;
+}
+
+.log-message {
+  min-width: 0;
+  overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 

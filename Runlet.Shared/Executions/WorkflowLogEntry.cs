@@ -10,5 +10,7 @@ public sealed class WorkflowLogEntry
 
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 
+    public WorkflowLogKind Kind { get; init; } = WorkflowLogKind.System;
+
     public required string Message { get; init; }
 }

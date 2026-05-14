@@ -197,7 +197,7 @@ public sealed class Worker(
 
                 foreach (var line in result.OutputLines)
                 {
-                    await AddLogAsync(dbContext, run.Id, step.Id, line, cancellationToken);
+                    await AddLogAsync(dbContext, run.Id, step.Id, line.Kind, line.Message, cancellationToken);
                 }
 
                 step.ExitCode = result.ExitCode;
@@ -357,10 +357,28 @@ public sealed class Worker(
         string message,
         CancellationToken cancellationToken)
     {
+        await AddLogAsync(
+            dbContext,
+            workflowRunId,
+            workflowStepId,
+            WorkflowLogKind.System,
+            message,
+            cancellationToken);
+    }
+
+    private static async Task AddLogAsync(
+        RunletDbContext dbContext,
+        Guid workflowRunId,
+        Guid? workflowStepId,
+        WorkflowLogKind kind,
+        string message,
+        CancellationToken cancellationToken)
+    {
         dbContext.WorkflowLogEntries.Add(new WorkflowLogEntry
         {
             WorkflowRunId = workflowRunId,
             WorkflowStepId = workflowStepId,
+            Kind = kind,
             Message = message
         });
 

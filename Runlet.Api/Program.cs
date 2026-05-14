@@ -154,6 +154,7 @@ app.MapGet("/runs/{id:guid}", async (
             log.Id,
             log.WorkflowStepId,
             log.CreatedAt,
+            log.Kind,
             log.Message
         })
         .ToListAsync(cancellationToken);
@@ -192,6 +193,7 @@ app.MapPost("/runs/{id:guid}/cancel", async (
         dbContext.WorkflowLogEntries.Add(new WorkflowLogEntry
         {
             WorkflowRunId = run.Id,
+            Kind = WorkflowLogKind.System,
             Message = "Cancellation requested."
         });
     }
@@ -209,6 +211,7 @@ app.MapPost("/runs/{id:guid}/cancel", async (
         dbContext.WorkflowLogEntries.Add(new WorkflowLogEntry
         {
             WorkflowRunId = run.Id,
+            Kind = WorkflowLogKind.System,
             Message = "Run cancelled."
         });
     }
@@ -246,6 +249,7 @@ app.MapGet("/runs/{id:guid}/logs", async (
             log.WorkflowRunId,
             log.WorkflowStepId,
             log.CreatedAt,
+            log.Kind,
             log.Message
         })
         .ToListAsync(cancellationToken);

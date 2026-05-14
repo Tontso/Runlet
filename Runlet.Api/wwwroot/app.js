@@ -166,9 +166,7 @@ function renderDetail() {
   els.cancelButton.hidden = !["Pending", "Running"].includes(run.status);
   els.runDetail.className = "";
 
-  const logs = detail.logs
-    .map((log) => `[${formatTime(log.createdAt)}] ${log.message}`)
-    .join("\n");
+  const logs = detail.logs.map(renderLog).join("");
 
   els.runDetail.innerHTML = `
     <div class="summary-grid">
@@ -190,7 +188,7 @@ function renderDetail() {
     </div>
 
     <h2>Logs</h2>
-    <pre class="logs">${escapeHtml(logs || "No logs yet.")}</pre>
+    <div class="logs">${logs || '<div class="log-line muted">No logs yet.</div>'}</div>
   `;
 }
 
@@ -221,6 +219,16 @@ function summaryItem(label, value) {
 
 function statusBadge(status) {
   return `<span class="status ${escapeHtml(status)}">${escapeHtml(status)}</span>`;
+}
+
+function renderLog(log) {
+  return `
+    <div class="log-line">
+      <span class="log-time">${escapeHtml(formatTime(log.createdAt))}</span>
+      <span class="log-kind ${escapeHtml(log.kind)}">${escapeHtml(log.kind)}</span>
+      <span class="log-message">${escapeHtml(log.message)}</span>
+    </div>
+  `;
 }
 
 function staleBadge(run) {
