@@ -8,7 +8,7 @@ namespace Runlet.Worker;
 
 public sealed class Worker(
     IServiceScopeFactory scopeFactory,
-    IWorkflowStepExecutor stepExecutor,
+    IWorkflowStepExecutorFactory stepExecutorFactory,
     ILogger<Worker> logger) : BackgroundService
 {
     private readonly string workerId = $"{Environment.MachineName}-{Guid.NewGuid():N}";
@@ -94,6 +94,7 @@ public sealed class Worker(
             .LoadAsync(cancellationToken);
 
         var orderedSteps = run.Steps.OrderBy(step => step.Order).ToList();
+        var stepExecutor = stepExecutorFactory.GetExecutor(run.ExecutionMode);
 
         foreach (var step in orderedSteps)
         {
@@ -103,7 +104,7 @@ public sealed class Worker(
 
             await AddLogAsync(dbContext, run.Id, step.Id, $"Starting step {step.Order}: {step.Command}", cancellationToken);
 
-            var result = await stepExecutor.ExecuteAsync(step.Command, cancellationToken);
+            var result = await stepExecutor.ExecuteAsync(run.Image, step.Command, cancellationToken);
 
             foreach (var line in result.OutputLines)
             {

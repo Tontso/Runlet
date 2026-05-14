@@ -4,7 +4,9 @@ using Runlet.Worker.Execution;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddRunletPersistence(builder.Configuration);
-builder.Services.AddSingleton<IWorkflowStepExecutor, LocalShellWorkflowStepExecutor>();
+builder.Services.AddSingleton<LocalShellWorkflowStepExecutor>();
+builder.Services.AddSingleton<DockerWorkflowStepExecutor>();
+builder.Services.AddSingleton<IWorkflowStepExecutorFactory, WorkflowStepExecutorFactory>();
 builder.Services.AddHostedService<Worker>();
 
 var host = builder.Build();

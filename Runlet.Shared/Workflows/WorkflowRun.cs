@@ -6,6 +6,8 @@ public sealed class WorkflowRun
 
     public required string Image { get; init; }
 
+    public WorkflowExecutionMode ExecutionMode { get; init; } = WorkflowExecutionMode.LocalShell;
+
     public WorkflowRunStatus Status { get; set; } = WorkflowRunStatus.Pending;
 
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;

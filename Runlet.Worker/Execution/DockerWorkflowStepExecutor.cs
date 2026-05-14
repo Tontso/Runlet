@@ -2,7 +2,7 @@ using System.Diagnostics;
 
 namespace Runlet.Worker.Execution;
 
-public sealed class LocalShellWorkflowStepExecutor : IWorkflowStepExecutor
+public sealed class DockerWorkflowStepExecutor : IWorkflowStepExecutor
 {
     public async Task<StepExecutionResult> ExecuteAsync(
         string image,
@@ -12,8 +12,16 @@ public sealed class LocalShellWorkflowStepExecutor : IWorkflowStepExecutor
         using var process = new Process();
         process.StartInfo = new ProcessStartInfo
         {
-            FileName = "/bin/sh",
-            ArgumentList = { "-c", command },
+            FileName = "docker",
+            ArgumentList =
+            {
+                "run",
+                "--rm",
+                image,
+                "/bin/sh",
+                "-c",
+                command
+            },
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false

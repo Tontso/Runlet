@@ -78,6 +78,12 @@ namespace Runlet.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<string>("ExecutionMode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("execution_mode");
+
                     b.Property<string>("Image")
                         .IsRequired()
                         .HasMaxLength(500)

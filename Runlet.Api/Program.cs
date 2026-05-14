@@ -7,7 +7,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
 builder.Services.ConfigureHttpJsonOptions(options =>
-    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)));
 builder.Services.AddRunletPersistence(builder.Configuration);
 
 var app = builder.Build();
@@ -44,6 +44,7 @@ app.MapPost("/runs", async (
     {
         Id = runId,
         Image = request.Image,
+        ExecutionMode = request.ExecutionMode,
         Steps = request.Steps
             .Select((command, index) => new WorkflowStep
             {
@@ -73,6 +74,7 @@ app.MapGet("/runs", async (
         {
             workflowRun.Id,
             workflowRun.Image,
+            workflowRun.ExecutionMode,
             workflowRun.Status,
             workflowRun.CreatedAt,
             workflowRun.StartedAt,
@@ -99,6 +101,7 @@ app.MapGet("/runs/{id:guid}", async (
         {
             workflowRun.Id,
             workflowRun.Image,
+            workflowRun.ExecutionMode,
             workflowRun.Status,
             workflowRun.CreatedAt,
             workflowRun.StartedAt,

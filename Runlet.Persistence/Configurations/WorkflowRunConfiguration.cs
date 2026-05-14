@@ -20,6 +20,12 @@ public sealed class WorkflowRunConfiguration : IEntityTypeConfiguration<Workflow
             .HasMaxLength(500)
             .IsRequired();
 
+        builder.Property(run => run.ExecutionMode)
+            .HasColumnName("execution_mode")
+            .HasConversion<string>()
+            .HasMaxLength(50)
+            .IsRequired();
+
         builder.Property(run => run.Status)
             .HasColumnName("status")
             .HasConversion<string>()
