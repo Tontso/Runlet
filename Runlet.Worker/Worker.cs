@@ -124,6 +124,23 @@ public sealed class Worker(
                 {
                     await watcherCancellation.CancelAsync();
                     result = await executionTask;
+
+                    if (await IsCancellationRequestedAsync(dbContext, run, cancellationToken))
+                    {
+                        step.CompletedAt = DateTimeOffset.UtcNow;
+                        step.Status = WorkflowStepStatus.Cancelled;
+
+                        await AddLogAsync(
+                            dbContext,
+                            run.Id,
+                            step.Id,
+                            $"Step {step.Order} completed after cancellation was requested.",
+                            cancellationToken);
+
+                        await dbContext.SaveChangesAsync(cancellationToken);
+                        await CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
+                        return;
+                    }
                 }
 
                 else if (completedTask == timeoutTask)
