@@ -111,16 +111,27 @@ public sealed class Worker(
             await AddLogAsync(dbContext, run.Id, step.Id, $"Starting step {step.Order}: {step.Command}", cancellationToken);
 
             StepExecutionResult result;
-            using (var stepTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            using (var stepCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            using (var watcherCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
             {
-                stepTimeout.CancelAfter(TimeSpan.FromSeconds(run.StepTimeoutSeconds));
+                var executionTask = stepExecutor.ExecuteAsync(run.Image, step.Command, stepCancellation.Token);
+                var timeoutTask = Task.Delay(TimeSpan.FromSeconds(run.StepTimeoutSeconds), watcherCancellation.Token);
+                var cancellationRequestTask = WaitForCancellationRequestAsync(run.Id, watcherCancellation.Token);
 
-                try
+                var completedTask = await Task.WhenAny(executionTask, timeoutTask, cancellationRequestTask);
+
+                if (completedTask == executionTask)
                 {
-                    result = await stepExecutor.ExecuteAsync(run.Image, step.Command, stepTimeout.Token);
+                    await watcherCancellation.CancelAsync();
+                    result = await executionTask;
                 }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+
+                else if (completedTask == timeoutTask)
                 {
+                    await watcherCancellation.CancelAsync();
+                    await stepCancellation.CancelAsync();
+                    await SwallowExpectedCancellationAsync(executionTask);
+
                     step.CompletedAt = DateTimeOffset.UtcNow;
                     step.Status = WorkflowStepStatus.Failed;
 
@@ -133,6 +144,28 @@ public sealed class Worker(
 
                     await dbContext.SaveChangesAsync(cancellationToken);
                     await FailRunAsync(dbContext, run, step, orderedSteps, cancellationToken);
+                    return;
+                }
+
+                else
+                {
+                    await cancellationRequestTask;
+                    await watcherCancellation.CancelAsync();
+                    await stepCancellation.CancelAsync();
+                    await SwallowExpectedCancellationAsync(executionTask);
+
+                    step.CompletedAt = DateTimeOffset.UtcNow;
+                    step.Status = WorkflowStepStatus.Cancelled;
+
+                    await AddLogAsync(
+                        dbContext,
+                        run.Id,
+                        step.Id,
+                        $"Step {step.Order} cancelled while running.",
+                        cancellationToken);
+
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                    await CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
                     return;
                 }
             }
@@ -179,6 +212,40 @@ public sealed class Worker(
     {
         await dbContext.Entry(run).ReloadAsync(cancellationToken);
         return run.CancellationRequestedAt is not null;
+    }
+
+    private async Task WaitForCancellationRequestAsync(
+        Guid workflowRunId,
+        CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+
+            using var scope = scopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<RunletDbContext>();
+            var cancellationRequested = await dbContext.WorkflowRuns
+                .AsNoTracking()
+                .Where(run => run.Id == workflowRunId)
+                .Select(run => run.CancellationRequestedAt != null)
+                .SingleAsync(cancellationToken);
+
+            if (cancellationRequested)
+            {
+                return;
+            }
+        }
+    }
+
+    private static async Task SwallowExpectedCancellationAsync(Task executionTask)
+    {
+        try
+        {
+            await executionTask;
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     private async Task CancelRunAsync(

@@ -6,5 +6,6 @@ public enum WorkflowStepStatus
     Running = 1,
     Succeeded = 2,
     Failed = 3,
-    Skipped = 4
+    Skipped = 4,
+    Cancelled = 5
 }

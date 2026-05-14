@@ -91,7 +91,8 @@ app.MapGet("/runs", async (
             StepCount = workflowRun.Steps.Count,
             SucceededStepCount = workflowRun.Steps.Count(step => step.Status == WorkflowStepStatus.Succeeded),
             FailedStepCount = workflowRun.Steps.Count(step => step.Status == WorkflowStepStatus.Failed),
-            SkippedStepCount = workflowRun.Steps.Count(step => step.Status == WorkflowStepStatus.Skipped)
+            SkippedStepCount = workflowRun.Steps.Count(step => step.Status == WorkflowStepStatus.Skipped),
+            CancelledStepCount = workflowRun.Steps.Count(step => step.Status == WorkflowStepStatus.Cancelled)
         })
         .ToListAsync(cancellationToken);
 
