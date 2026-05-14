@@ -305,6 +305,13 @@ textarea {
   margin-bottom: 6px;
 }
 
+.step-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+
 .command,
 .logs {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;

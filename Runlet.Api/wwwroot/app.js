@@ -140,6 +140,7 @@ function renderRuns() {
       </div>
       <div class="muted">Last heartbeat: ${formatHeartbeat(run)}</div>
       <div class="status-row muted">
+        <span>Runtime ${formatDuration(run.startedAt, run.completedAt, run.status)}</span>
         <span>${run.succeededStepCount}/${run.stepCount} ok</span>
         <span>${run.failedStepCount} failed</span>
         <span>${run.skippedStepCount} skipped</span>
@@ -180,6 +181,7 @@ function renderDetail() {
       ${summaryItem("Completed", formatDate(run.completedAt))}
       ${summaryItem("Cancel requested", formatDate(run.cancellationRequestedAt))}
       ${summaryItem("Last heartbeat", formatHeartbeat(run))}
+      ${summaryItem("Duration", formatDuration(run.startedAt, run.completedAt, run.status))}
     </div>
 
     <h2>Steps</h2>
@@ -200,7 +202,10 @@ function renderStep(step) {
         ${statusBadge(step.status)}
       </div>
       <div class="command">${escapeHtml(step.command)}</div>
-      <div class="muted">Exit: ${step.exitCode ?? "-"}</div>
+      <div class="step-meta muted">
+        <span>Exit: ${step.exitCode ?? "-"}</span>
+        <span>Duration: ${formatDuration(step.startedAt, step.completedAt, step.status)}</span>
+      </div>
     </div>
   `;
 }
@@ -299,6 +304,31 @@ function isHeartbeatStale(run) {
 
 function secondsSince(value) {
   return Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1000));
+}
+
+function formatDuration(startedAt, completedAt, status) {
+  if (!startedAt) {
+    return "-";
+  }
+
+  const end = completedAt ? new Date(completedAt).getTime() : Date.now();
+  const seconds = Math.max(0, Math.round((end - new Date(startedAt).getTime()) / 1000));
+  const suffix = status === "Running" && !completedAt ? " running" : "";
+
+  if (seconds < 60) {
+    return `${seconds}s${suffix}`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+
+  if (minutes < 60) {
+    return `${minutes}m ${remainingSeconds}s${suffix}`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return `${hours}h ${remainingMinutes}m${suffix}`;
 }
 
 function escapeHtml(value) {
