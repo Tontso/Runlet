@@ -5,6 +5,8 @@ const state = {
   refreshTimer: null
 };
 
+const staleHeartbeatSeconds = 20;
+
 const els = {
   form: document.querySelector("#createRunForm"),
   image: document.querySelector("#imageInput"),
@@ -130,7 +132,7 @@ function renderRuns() {
     item.innerHTML = `
       <div class="run-title">
         <span class="run-id">${escapeHtml(shortId(run.id))}</span>
-        ${statusBadge(run.status)}
+        <span class="badges">${statusBadge(run.status)}${staleBadge(run)}</span>
       </div>
       <div class="meta-row">
         <span>${escapeHtml(run.executionMode)}</span>
@@ -169,7 +171,7 @@ function renderDetail() {
 
   els.runDetail.innerHTML = `
     <div class="summary-grid">
-      ${summaryItem("Status", statusBadge(run.status))}
+      ${summaryItem("Status", `${statusBadge(run.status)}${staleBadge(run)}`)}
       ${summaryItem("Executor", escapeHtml(run.executionMode))}
       ${summaryItem("Image", escapeHtml(run.image))}
       ${summaryItem("Timeout", `${run.stepTimeoutSeconds}s`)}
@@ -214,6 +216,12 @@ function summaryItem(label, value) {
 
 function statusBadge(status) {
   return `<span class="status ${escapeHtml(status)}">${escapeHtml(status)}</span>`;
+}
+
+function staleBadge(run) {
+  return isHeartbeatStale(run)
+    ? '<span class="status Stale">Stale</span>'
+    : "";
 }
 
 async function fetchJson(url) {
@@ -271,12 +279,26 @@ function formatRelative(value) {
 
 function formatHeartbeat(run) {
   if (!run.lastHeartbeatAt) {
-    return "-";
+    return run.status === "Running" ? "missing" : "-";
   }
 
-  return run.status === "Running"
+  const heartbeat = run.status === "Running"
     ? formatRelative(run.lastHeartbeatAt)
     : formatDate(run.lastHeartbeatAt);
+
+  return isHeartbeatStale(run) ? `${heartbeat} stale` : heartbeat;
+}
+
+function isHeartbeatStale(run) {
+  if (run.status !== "Running" || !run.lastHeartbeatAt) {
+    return false;
+  }
+
+  return secondsSince(run.lastHeartbeatAt) > staleHeartbeatSeconds;
+}
+
+function secondsSince(value) {
+  return Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1000));
 }
 
 function escapeHtml(value) {

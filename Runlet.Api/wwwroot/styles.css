@@ -221,6 +221,13 @@ textarea {
   font-weight: 700;
 }
 
+.badges {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
 .status.Succeeded {
   background: var(--ok-soft);
   color: var(--ok);
@@ -238,6 +245,11 @@ textarea {
 }
 
 .status.Pending {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.status.Stale {
   background: var(--warn-soft);
   color: var(--warn);
 }
