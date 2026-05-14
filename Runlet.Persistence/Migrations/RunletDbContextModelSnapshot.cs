@@ -70,6 +70,10 @@ namespace Runlet.Persistence.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("claimed_by_worker_id");
 
+                    b.Property<DateTimeOffset?>("CancellationRequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("cancellation_requested_at");
+
                     b.Property<DateTimeOffset?>("CompletedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("completed_at");

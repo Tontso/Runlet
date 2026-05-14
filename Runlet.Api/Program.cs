@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Runlet.Persistence;
+using Runlet.Shared.Executions;
 using Runlet.Shared.Workflows;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -86,6 +87,7 @@ app.MapGet("/runs", async (
             workflowRun.CreatedAt,
             workflowRun.StartedAt,
             workflowRun.CompletedAt,
+            workflowRun.CancellationRequestedAt,
             StepCount = workflowRun.Steps.Count,
             SucceededStepCount = workflowRun.Steps.Count(step => step.Status == WorkflowStepStatus.Succeeded),
             FailedStepCount = workflowRun.Steps.Count(step => step.Status == WorkflowStepStatus.Failed),
@@ -114,6 +116,7 @@ app.MapGet("/runs/{id:guid}", async (
             workflowRun.CreatedAt,
             workflowRun.StartedAt,
             workflowRun.CompletedAt,
+            workflowRun.CancellationRequestedAt,
             workflowRun.ClaimedByWorkerId,
             workflowRun.ClaimedAt,
             Steps = workflowRun.Steps
@@ -157,6 +160,64 @@ app.MapGet("/runs/{id:guid}", async (
     });
 })
 .WithName("GetWorkflowRun");
+
+app.MapPost("/runs/{id:guid}/cancel", async (
+    Guid id,
+    RunletDbContext dbContext,
+    CancellationToken cancellationToken) =>
+{
+    var run = await dbContext.WorkflowRuns
+        .Include(workflowRun => workflowRun.Steps)
+        .SingleOrDefaultAsync(workflowRun => workflowRun.Id == id, cancellationToken);
+
+    if (run is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (run.Status is WorkflowRunStatus.Succeeded or WorkflowRunStatus.Failed or WorkflowRunStatus.Cancelled)
+    {
+        return Results.Conflict($"Run is already {run.Status}.");
+    }
+
+    var now = DateTimeOffset.UtcNow;
+    if (run.CancellationRequestedAt is null)
+    {
+        run.CancellationRequestedAt = now;
+        dbContext.WorkflowLogEntries.Add(new WorkflowLogEntry
+        {
+            WorkflowRunId = run.Id,
+            Message = "Cancellation requested."
+        });
+    }
+
+    if (run.Status == WorkflowRunStatus.Pending)
+    {
+        run.Status = WorkflowRunStatus.Cancelled;
+        run.CompletedAt = now;
+
+        foreach (var step in run.Steps.Where(step => step.Status == WorkflowStepStatus.Pending))
+        {
+            step.Status = WorkflowStepStatus.Skipped;
+        }
+
+        dbContext.WorkflowLogEntries.Add(new WorkflowLogEntry
+        {
+            WorkflowRunId = run.Id,
+            Message = "Run cancelled."
+        });
+    }
+
+    await dbContext.SaveChangesAsync(cancellationToken);
+
+    return Results.Accepted($"/runs/{run.Id}", new
+    {
+        run.Id,
+        run.Status,
+        run.CancellationRequestedAt
+    });
+})
+.WithName("CancelWorkflowRun");
 
 app.MapGet("/runs/{id:guid}/logs", async (
     Guid id,

@@ -18,6 +18,8 @@ public sealed class WorkflowRun
 
     public DateTimeOffset? CompletedAt { get; set; }
 
+    public DateTimeOffset? CancellationRequestedAt { get; set; }
+
     public string? ClaimedByWorkerId { get; set; }
 
     public DateTimeOffset? ClaimedAt { get; set; }

@@ -45,6 +45,9 @@ public sealed class WorkflowRunConfiguration : IEntityTypeConfiguration<Workflow
         builder.Property(run => run.CompletedAt)
             .HasColumnName("completed_at");
 
+        builder.Property(run => run.CancellationRequestedAt)
+            .HasColumnName("cancellation_requested_at");
+
         builder.Property(run => run.ClaimedByWorkerId)
             .HasColumnName("claimed_by_worker_id")
             .HasMaxLength(200);

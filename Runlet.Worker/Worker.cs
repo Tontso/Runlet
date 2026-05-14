@@ -98,6 +98,12 @@ public sealed class Worker(
 
         foreach (var step in orderedSteps)
         {
+            if (await IsCancellationRequestedAsync(dbContext, run, cancellationToken))
+            {
+                await CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
+                return;
+            }
+
             step.Status = WorkflowStepStatus.Running;
             step.StartedAt = DateTimeOffset.UtcNow;
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -151,6 +157,12 @@ public sealed class Worker(
             }
         }
 
+        if (await IsCancellationRequestedAsync(dbContext, run, cancellationToken))
+        {
+            await CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
+            return;
+        }
+
         run.Status = WorkflowRunStatus.Succeeded;
         run.CompletedAt = DateTimeOffset.UtcNow;
 
@@ -158,6 +170,35 @@ public sealed class Worker(
         await dbContext.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation("Run {RunId} succeeded.", run.Id);
+    }
+
+    private static async Task<bool> IsCancellationRequestedAsync(
+        RunletDbContext dbContext,
+        WorkflowRun run,
+        CancellationToken cancellationToken)
+    {
+        await dbContext.Entry(run).ReloadAsync(cancellationToken);
+        return run.CancellationRequestedAt is not null;
+    }
+
+    private async Task CancelRunAsync(
+        RunletDbContext dbContext,
+        WorkflowRun run,
+        IReadOnlyCollection<WorkflowStep> steps,
+        CancellationToken cancellationToken)
+    {
+        foreach (var step in steps.Where(step => step.Status == WorkflowStepStatus.Pending))
+        {
+            step.Status = WorkflowStepStatus.Skipped;
+        }
+
+        run.Status = WorkflowRunStatus.Cancelled;
+        run.CompletedAt = DateTimeOffset.UtcNow;
+
+        await AddLogAsync(dbContext, run.Id, workflowStepId: null, "Run cancelled.", cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation("Run {RunId} cancelled.", run.Id);
     }
 
     private async Task FailRunAsync(
