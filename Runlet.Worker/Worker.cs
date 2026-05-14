@@ -119,7 +119,7 @@ public sealed class Worker(
 
             if (step.Status == WorkflowStepStatus.Failed)
             {
-                await FailRunAsync(dbContext, run, orderedSteps, cancellationToken);
+                await FailRunAsync(dbContext, run, step, orderedSteps, cancellationToken);
                 return;
             }
         }
@@ -136,6 +136,7 @@ public sealed class Worker(
     private async Task FailRunAsync(
         RunletDbContext dbContext,
         WorkflowRun run,
+        WorkflowStep failedStep,
         IReadOnlyCollection<WorkflowStep> steps,
         CancellationToken cancellationToken)
     {
@@ -146,6 +147,13 @@ public sealed class Worker(
 
         run.Status = WorkflowRunStatus.Failed;
         run.CompletedAt = DateTimeOffset.UtcNow;
+
+        await AddLogAsync(
+            dbContext,
+            run.Id,
+            failedStep.Id,
+            $"Step {failedStep.Order} failed with exit code {failedStep.ExitCode}.",
+            cancellationToken);
 
         await AddLogAsync(dbContext, run.Id, workflowStepId: null, "Run failed.", cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
