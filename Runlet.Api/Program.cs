@@ -39,12 +39,18 @@ app.MapPost("/runs", async (
         return Results.BadRequest("Workflow steps cannot be empty.");
     }
 
+    if (request.StepTimeoutSeconds is < 1 or > 86_400)
+    {
+        return Results.BadRequest("Step timeout must be between 1 and 86400 seconds.");
+    }
+
     var runId = Guid.NewGuid();
     var run = new WorkflowRun
     {
         Id = runId,
         Image = request.Image,
         ExecutionMode = request.ExecutionMode,
+        StepTimeoutSeconds = request.StepTimeoutSeconds,
         Steps = request.Steps
             .Select((command, index) => new WorkflowStep
             {
@@ -75,6 +81,7 @@ app.MapGet("/runs", async (
             workflowRun.Id,
             workflowRun.Image,
             workflowRun.ExecutionMode,
+            workflowRun.StepTimeoutSeconds,
             workflowRun.Status,
             workflowRun.CreatedAt,
             workflowRun.StartedAt,
@@ -102,6 +109,7 @@ app.MapGet("/runs/{id:guid}", async (
             workflowRun.Id,
             workflowRun.Image,
             workflowRun.ExecutionMode,
+            workflowRun.StepTimeoutSeconds,
             workflowRun.Status,
             workflowRun.CreatedAt,
             workflowRun.StartedAt,

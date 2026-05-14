@@ -104,7 +104,32 @@ public sealed class Worker(
 
             await AddLogAsync(dbContext, run.Id, step.Id, $"Starting step {step.Order}: {step.Command}", cancellationToken);
 
-            var result = await stepExecutor.ExecuteAsync(run.Image, step.Command, cancellationToken);
+            StepExecutionResult result;
+            using (var stepTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            {
+                stepTimeout.CancelAfter(TimeSpan.FromSeconds(run.StepTimeoutSeconds));
+
+                try
+                {
+                    result = await stepExecutor.ExecuteAsync(run.Image, step.Command, stepTimeout.Token);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    step.CompletedAt = DateTimeOffset.UtcNow;
+                    step.Status = WorkflowStepStatus.Failed;
+
+                    await AddLogAsync(
+                        dbContext,
+                        run.Id,
+                        step.Id,
+                        $"Step {step.Order} timed out after {run.StepTimeoutSeconds} seconds.",
+                        cancellationToken);
+
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                    await FailRunAsync(dbContext, run, step, orderedSteps, cancellationToken);
+                    return;
+                }
+            }
 
             foreach (var line in result.OutputLines)
             {
@@ -154,7 +179,9 @@ public sealed class Worker(
             dbContext,
             run.Id,
             failedStep.Id,
-            $"Step {failedStep.Order} failed with exit code {failedStep.ExitCode}.",
+            failedStep.ExitCode is null
+                ? $"Step {failedStep.Order} failed without an exit code."
+                : $"Step {failedStep.Order} failed with exit code {failedStep.ExitCode}.",
             cancellationToken);
 
         await AddLogAsync(dbContext, run.Id, workflowStepId: null, "Run failed.", cancellationToken);

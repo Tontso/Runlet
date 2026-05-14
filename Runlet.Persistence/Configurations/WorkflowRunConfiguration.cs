@@ -26,6 +26,10 @@ public sealed class WorkflowRunConfiguration : IEntityTypeConfiguration<Workflow
             .HasMaxLength(50)
             .IsRequired();
 
+        builder.Property(run => run.StepTimeoutSeconds)
+            .HasColumnName("step_timeout_seconds")
+            .IsRequired();
+
         builder.Property(run => run.Status)
             .HasColumnName("status")
             .HasConversion<string>()

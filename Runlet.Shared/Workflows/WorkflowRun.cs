@@ -8,6 +8,8 @@ public sealed class WorkflowRun
 
     public WorkflowExecutionMode ExecutionMode { get; init; } = WorkflowExecutionMode.LocalShell;
 
+    public int StepTimeoutSeconds { get; init; } = 300;
+
     public WorkflowRunStatus Status { get; set; } = WorkflowRunStatus.Pending;
 
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;

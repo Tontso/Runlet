@@ -94,6 +94,10 @@ namespace Runlet.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("started_at");
 
+                    b.Property<int>("StepTimeoutSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("step_timeout_seconds");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(50)

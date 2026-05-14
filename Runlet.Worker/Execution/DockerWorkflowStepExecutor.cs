@@ -9,6 +9,7 @@ public sealed class DockerWorkflowStepExecutor : IWorkflowStepExecutor
         string command,
         CancellationToken cancellationToken)
     {
+        var containerName = $"runlet-step-{Guid.NewGuid():N}";
         using var process = new Process();
         process.StartInfo = new ProcessStartInfo
         {
@@ -17,6 +18,8 @@ public sealed class DockerWorkflowStepExecutor : IWorkflowStepExecutor
             {
                 "run",
                 "--rm",
+                "--name",
+                containerName,
                 image,
                 "/bin/sh",
                 "-c",
@@ -43,6 +46,7 @@ public sealed class DockerWorkflowStepExecutor : IWorkflowStepExecutor
                 process.Kill(entireProcessTree: true);
             }
 
+            await ForceRemoveContainerAsync(containerName);
             throw;
         }
 
@@ -55,5 +59,26 @@ public sealed class DockerWorkflowStepExecutor : IWorkflowStepExecutor
             .ToList();
 
         return new StepExecutionResult(process.ExitCode, outputLines);
+    }
+
+    private static async Task ForceRemoveContainerAsync(string containerName)
+    {
+        using var process = new Process();
+        process.StartInfo = new ProcessStartInfo
+        {
+            FileName = "docker",
+            ArgumentList =
+            {
+                "rm",
+                "-f",
+                containerName
+            },
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+
+        process.Start();
+        await process.WaitForExitAsync(CancellationToken.None);
     }
 }
