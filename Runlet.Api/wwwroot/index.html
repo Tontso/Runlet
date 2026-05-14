@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Runlet Console</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Runlet</h1>
+      <p>Workflow runs, steps, and logs</p>
+    </div>
+    <button id="refreshButton" type="button">Refresh</button>
+  </header>
+
+  <main class="layout">
+    <section class="panel create-panel" aria-labelledby="create-title">
+      <h2 id="create-title">Create Run</h2>
+      <form id="createRunForm">
+        <label>
+          Image
+          <input id="imageInput" name="image" value="alpine:latest" autocomplete="off">
+        </label>
+
+        <div class="form-grid">
+          <label>
+            Executor
+            <select id="executionModeInput" name="executionMode">
+              <option value="Docker">Docker</option>
+              <option value="LocalShell">LocalShell</option>
+            </select>
+          </label>
+
+          <label>
+            Step timeout
+            <input id="timeoutInput" name="stepTimeoutSeconds" type="number" min="1" max="86400" value="60">
+          </label>
+        </div>
+
+        <label>
+          Steps
+          <textarea id="stepsInput" name="steps" rows="5">echo hello
+sleep 2
+echo done</textarea>
+        </label>
+
+        <button type="submit">Create</button>
+      </form>
+      <p id="message" class="message" role="status"></p>
+    </section>
+
+    <section class="panel runs-panel" aria-labelledby="runs-title">
+      <div class="section-heading">
+        <h2 id="runs-title">Runs</h2>
+        <span id="runCount" class="muted"></span>
+      </div>
+      <div id="runsList" class="runs-list"></div>
+    </section>
+
+    <section class="panel detail-panel" aria-labelledby="detail-title">
+      <div class="section-heading">
+        <h2 id="detail-title">Details</h2>
+        <button id="cancelButton" type="button" class="danger" hidden>Cancel</button>
+      </div>
+      <div id="runDetail" class="detail-empty">Select a run to inspect it.</div>
+    </section>
+  </main>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>
