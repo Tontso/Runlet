@@ -24,5 +24,7 @@ public sealed class WorkflowRun
 
     public DateTimeOffset? ClaimedAt { get; set; }
 
+    public DateTimeOffset? LastHeartbeatAt { get; set; }
+
     public List<WorkflowStep> Steps { get; init; } = [];
 }

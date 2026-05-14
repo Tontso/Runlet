@@ -90,6 +90,7 @@ app.MapGet("/runs", async (
             workflowRun.StartedAt,
             workflowRun.CompletedAt,
             workflowRun.CancellationRequestedAt,
+            workflowRun.LastHeartbeatAt,
             StepCount = workflowRun.Steps.Count,
             SucceededStepCount = workflowRun.Steps.Count(step => step.Status == WorkflowStepStatus.Succeeded),
             FailedStepCount = workflowRun.Steps.Count(step => step.Status == WorkflowStepStatus.Failed),
@@ -122,6 +123,7 @@ app.MapGet("/runs/{id:guid}", async (
             workflowRun.CancellationRequestedAt,
             workflowRun.ClaimedByWorkerId,
             workflowRun.ClaimedAt,
+            workflowRun.LastHeartbeatAt,
             Steps = workflowRun.Steps
                 .OrderBy(step => step.Order)
                 .Select(step => new

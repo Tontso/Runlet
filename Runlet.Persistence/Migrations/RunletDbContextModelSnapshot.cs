@@ -94,6 +94,10 @@ namespace Runlet.Persistence.Migrations
                         .HasColumnType("character varying(500)")
                         .HasColumnName("image");
 
+                    b.Property<DateTimeOffset?>("LastHeartbeatAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_heartbeat_at");
+
                     b.Property<DateTimeOffset?>("StartedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("started_at");

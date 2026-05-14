@@ -55,6 +55,9 @@ public sealed class WorkflowRunConfiguration : IEntityTypeConfiguration<Workflow
         builder.Property(run => run.ClaimedAt)
             .HasColumnName("claimed_at");
 
+        builder.Property(run => run.LastHeartbeatAt)
+            .HasColumnName("last_heartbeat_at");
+
         builder.HasMany(run => run.Steps)
             .WithOne()
             .HasForeignKey(step => step.WorkflowRunId)

@@ -11,6 +11,8 @@ public sealed class Worker(
     IWorkflowStepExecutorFactory stepExecutorFactory,
     ILogger<Worker> logger) : BackgroundService
 {
+    private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(5);
+
     private readonly string workerId = $"{Environment.MachineName}-{Guid.NewGuid():N}";
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -75,6 +77,7 @@ public sealed class Worker(
         run.StartedAt = now;
         run.ClaimedAt = now;
         run.ClaimedByWorkerId = workerId;
+        run.LastHeartbeatAt = now;
 
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -96,37 +99,86 @@ public sealed class Worker(
         var orderedSteps = run.Steps.OrderBy(step => step.Order).ToList();
         var stepExecutor = stepExecutorFactory.GetExecutor(run.ExecutionMode);
 
-        foreach (var step in orderedSteps)
+        using var heartbeatCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var heartbeatTask = SendHeartbeatsAsync(run.Id, heartbeatCancellation.Token);
+
+        try
         {
-            if (await IsCancellationRequestedAsync(dbContext, run, cancellationToken))
+            foreach (var step in orderedSteps)
             {
-                await CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
-                return;
-            }
-
-            step.Status = WorkflowStepStatus.Running;
-            step.StartedAt = DateTimeOffset.UtcNow;
-            await dbContext.SaveChangesAsync(cancellationToken);
-
-            await AddLogAsync(dbContext, run.Id, step.Id, $"Starting step {step.Order}: {step.Command}", cancellationToken);
-
-            StepExecutionResult result;
-            using (var stepCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
-            using (var watcherCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
-            {
-                var executionTask = stepExecutor.ExecuteAsync(run.Image, step.Command, stepCancellation.Token);
-                var timeoutTask = Task.Delay(TimeSpan.FromSeconds(run.StepTimeoutSeconds), watcherCancellation.Token);
-                var cancellationRequestTask = WaitForCancellationRequestAsync(run.Id, watcherCancellation.Token);
-
-                var completedTask = await Task.WhenAny(executionTask, timeoutTask, cancellationRequestTask);
-
-                if (completedTask == executionTask)
+                if (await IsCancellationRequestedAsync(dbContext, run, cancellationToken))
                 {
-                    await watcherCancellation.CancelAsync();
-                    result = await executionTask;
+                    await CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
+                    return;
+                }
 
-                    if (await IsCancellationRequestedAsync(dbContext, run, cancellationToken))
+                step.Status = WorkflowStepStatus.Running;
+                step.StartedAt = DateTimeOffset.UtcNow;
+                await dbContext.SaveChangesAsync(cancellationToken);
+
+                await AddLogAsync(dbContext, run.Id, step.Id, $"Starting step {step.Order}: {step.Command}", cancellationToken);
+
+                StepExecutionResult result;
+                using (var stepCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+                using (var watcherCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+                {
+                    var executionTask = stepExecutor.ExecuteAsync(run.Image, step.Command, stepCancellation.Token);
+                    var timeoutTask = Task.Delay(TimeSpan.FromSeconds(run.StepTimeoutSeconds), watcherCancellation.Token);
+                    var cancellationRequestTask = WaitForCancellationRequestAsync(run.Id, watcherCancellation.Token);
+
+                    var completedTask = await Task.WhenAny(executionTask, timeoutTask, cancellationRequestTask);
+
+                    if (completedTask == executionTask)
                     {
+                        await watcherCancellation.CancelAsync();
+                        result = await executionTask;
+
+                        if (await IsCancellationRequestedAsync(dbContext, run, cancellationToken))
+                        {
+                            step.CompletedAt = DateTimeOffset.UtcNow;
+                            step.Status = WorkflowStepStatus.Cancelled;
+
+                            await AddLogAsync(
+                                dbContext,
+                                run.Id,
+                                step.Id,
+                                $"Step {step.Order} completed after cancellation was requested.",
+                                cancellationToken);
+
+                            await dbContext.SaveChangesAsync(cancellationToken);
+                            await CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
+                            return;
+                        }
+                    }
+
+                    else if (completedTask == timeoutTask)
+                    {
+                        await watcherCancellation.CancelAsync();
+                        await stepCancellation.CancelAsync();
+                        await SwallowExpectedCancellationAsync(executionTask);
+
+                        step.CompletedAt = DateTimeOffset.UtcNow;
+                        step.Status = WorkflowStepStatus.Failed;
+
+                        await AddLogAsync(
+                            dbContext,
+                            run.Id,
+                            step.Id,
+                            $"Step {step.Order} timed out after {run.StepTimeoutSeconds} seconds.",
+                            cancellationToken);
+
+                        await dbContext.SaveChangesAsync(cancellationToken);
+                        await FailRunAsync(dbContext, run, step, orderedSteps, cancellationToken);
+                        return;
+                    }
+
+                    else
+                    {
+                        await cancellationRequestTask;
+                        await watcherCancellation.CancelAsync();
+                        await stepCancellation.CancelAsync();
+                        await SwallowExpectedCancellationAsync(executionTask);
+
                         step.CompletedAt = DateTimeOffset.UtcNow;
                         step.Status = WorkflowStepStatus.Cancelled;
 
@@ -134,7 +186,7 @@ public sealed class Worker(
                             dbContext,
                             run.Id,
                             step.Id,
-                            $"Step {step.Order} completed after cancellation was requested.",
+                            $"Step {step.Order} cancelled while running.",
                             cancellationToken);
 
                         await dbContext.SaveChangesAsync(cancellationToken);
@@ -143,83 +195,45 @@ public sealed class Worker(
                     }
                 }
 
-                else if (completedTask == timeoutTask)
+                foreach (var line in result.OutputLines)
                 {
-                    await watcherCancellation.CancelAsync();
-                    await stepCancellation.CancelAsync();
-                    await SwallowExpectedCancellationAsync(executionTask);
+                    await AddLogAsync(dbContext, run.Id, step.Id, line, cancellationToken);
+                }
 
-                    step.CompletedAt = DateTimeOffset.UtcNow;
-                    step.Status = WorkflowStepStatus.Failed;
+                step.ExitCode = result.ExitCode;
+                step.CompletedAt = DateTimeOffset.UtcNow;
+                step.Status = result.ExitCode == 0
+                    ? WorkflowStepStatus.Succeeded
+                    : WorkflowStepStatus.Failed;
 
-                    await AddLogAsync(
-                        dbContext,
-                        run.Id,
-                        step.Id,
-                        $"Step {step.Order} timed out after {run.StepTimeoutSeconds} seconds.",
-                        cancellationToken);
+                await dbContext.SaveChangesAsync(cancellationToken);
 
-                    await dbContext.SaveChangesAsync(cancellationToken);
+                if (step.Status == WorkflowStepStatus.Failed)
+                {
                     await FailRunAsync(dbContext, run, step, orderedSteps, cancellationToken);
                     return;
                 }
-
-                else
-                {
-                    await cancellationRequestTask;
-                    await watcherCancellation.CancelAsync();
-                    await stepCancellation.CancelAsync();
-                    await SwallowExpectedCancellationAsync(executionTask);
-
-                    step.CompletedAt = DateTimeOffset.UtcNow;
-                    step.Status = WorkflowStepStatus.Cancelled;
-
-                    await AddLogAsync(
-                        dbContext,
-                        run.Id,
-                        step.Id,
-                        $"Step {step.Order} cancelled while running.",
-                        cancellationToken);
-
-                    await dbContext.SaveChangesAsync(cancellationToken);
-                    await CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
-                    return;
-                }
             }
 
-            foreach (var line in result.OutputLines)
+            if (await IsCancellationRequestedAsync(dbContext, run, cancellationToken))
             {
-                await AddLogAsync(dbContext, run.Id, step.Id, line, cancellationToken);
-            }
-
-            step.ExitCode = result.ExitCode;
-            step.CompletedAt = DateTimeOffset.UtcNow;
-            step.Status = result.ExitCode == 0
-                ? WorkflowStepStatus.Succeeded
-                : WorkflowStepStatus.Failed;
-
-            await dbContext.SaveChangesAsync(cancellationToken);
-
-            if (step.Status == WorkflowStepStatus.Failed)
-            {
-                await FailRunAsync(dbContext, run, step, orderedSteps, cancellationToken);
+                await CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
                 return;
             }
-        }
 
-        if (await IsCancellationRequestedAsync(dbContext, run, cancellationToken))
+            run.Status = WorkflowRunStatus.Succeeded;
+            run.CompletedAt = DateTimeOffset.UtcNow;
+
+            await AddLogAsync(dbContext, run.Id, workflowStepId: null, "Run completed successfully.", cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            logger.LogInformation("Run {RunId} succeeded.", run.Id);
+        }
+        finally
         {
-            await CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
-            return;
+            await heartbeatCancellation.CancelAsync();
+            await SwallowExpectedCancellationAsync(heartbeatTask);
         }
-
-        run.Status = WorkflowRunStatus.Succeeded;
-        run.CompletedAt = DateTimeOffset.UtcNow;
-
-        await AddLogAsync(dbContext, run.Id, workflowStepId: null, "Run completed successfully.", cancellationToken);
-        await dbContext.SaveChangesAsync(cancellationToken);
-
-        logger.LogInformation("Run {RunId} succeeded.", run.Id);
     }
 
     private static async Task<bool> IsCancellationRequestedAsync(
@@ -251,6 +265,27 @@ public sealed class Worker(
             {
                 return;
             }
+        }
+    }
+
+    private async Task SendHeartbeatsAsync(
+        Guid workflowRunId,
+        CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            using var scope = scopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<RunletDbContext>();
+
+            await dbContext.WorkflowRuns
+                .Where(run => run.Id == workflowRunId && run.Status == WorkflowRunStatus.Running)
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(
+                        run => run.LastHeartbeatAt,
+                        DateTimeOffset.UtcNow),
+                    cancellationToken);
+
+            await Task.Delay(HeartbeatInterval, cancellationToken);
         }
     }
 

@@ -136,6 +136,7 @@ function renderRuns() {
         <span>${escapeHtml(run.executionMode)}</span>
         <span class="muted">${escapeHtml(run.image)}</span>
       </div>
+      <div class="muted">Last heartbeat: ${formatHeartbeat(run)}</div>
       <div class="status-row muted">
         <span>${run.succeededStepCount}/${run.stepCount} ok</span>
         <span>${run.failedStepCount} failed</span>
@@ -176,6 +177,7 @@ function renderDetail() {
       ${summaryItem("Started", formatDate(run.startedAt))}
       ${summaryItem("Completed", formatDate(run.completedAt))}
       ${summaryItem("Cancel requested", formatDate(run.cancellationRequestedAt))}
+      ${summaryItem("Last heartbeat", formatHeartbeat(run))}
     </div>
 
     <h2>Steps</h2>
@@ -246,6 +248,35 @@ function formatDate(value) {
 
 function formatTime(value) {
   return formatDate(value);
+}
+
+function formatRelative(value) {
+  if (!value) {
+    return "-";
+  }
+
+  const seconds = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1000));
+
+  if (seconds < 2) {
+    return "just now";
+  }
+
+  if (seconds < 60) {
+    return `${seconds}s ago`;
+  }
+
+  const minutes = Math.round(seconds / 60);
+  return `${minutes}m ago`;
+}
+
+function formatHeartbeat(run) {
+  if (!run.lastHeartbeatAt) {
+    return "-";
+  }
+
+  return run.status === "Running"
+    ? formatRelative(run.lastHeartbeatAt)
+    : formatDate(run.lastHeartbeatAt);
 }
 
 function escapeHtml(value) {
