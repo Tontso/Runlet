@@ -1,12 +1,14 @@
+using Microsoft.EntityFrameworkCore;
+using Runlet.Persistence;
+using Runlet.Shared.Workflows;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+builder.Services.AddRunletPersistence(builder.Configuration);
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
@@ -14,28 +16,61 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-var summaries = new[]
+app.MapPost("/runs", async (
+    CreateWorkflowRunRequest request,
+    RunletDbContext dbContext,
+    CancellationToken cancellationToken) =>
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+    if (string.IsNullOrWhiteSpace(request.Image))
+    {
+        return Results.BadRequest("Workflow image is required.");
+    }
 
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
+    if (request.Steps.Count == 0)
+    {
+        return Results.BadRequest("At least one workflow step is required.");
+    }
+
+    if (request.Steps.Any(string.IsNullOrWhiteSpace))
+    {
+        return Results.BadRequest("Workflow steps cannot be empty.");
+    }
+
+    var runId = Guid.NewGuid();
+    var run = new WorkflowRun
+    {
+        Id = runId,
+        Image = request.Image,
+        Steps = request.Steps
+            .Select((command, index) => new WorkflowStep
+            {
+                WorkflowRunId = runId,
+                Order = index + 1,
+                Command = command
+            })
+            .ToList()
+    };
+
+    dbContext.WorkflowRuns.Add(run);
+    await dbContext.SaveChangesAsync(cancellationToken);
+
+    return Results.Created($"/runs/{run.Id}", run);
 })
-.WithName("GetWeatherForecast");
+.WithName("CreateWorkflowRun");
 
-app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
+app.MapGet("/runs/{id:guid}", async (
+    Guid id,
+    RunletDbContext dbContext,
+    CancellationToken cancellationToken) =>
 {
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
+    var run = await dbContext.WorkflowRuns
+        .Include(workflowRun => workflowRun.Steps)
+        .SingleOrDefaultAsync(workflowRun => workflowRun.Id == id, cancellationToken);
+
+    return run is not null
+        ? Results.Ok(run)
+        : Results.NotFound();
+})
+.WithName("GetWorkflowRun");
+
+await app.RunAsync();

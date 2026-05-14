@@ -13,5 +13,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Runlet.Shared\Runlet.Shared.csproj" />
+    <ProjectReference Include="..\Runlet.Persistence\Runlet.Persistence.csproj" />
   </ItemGroup>
 </Project>
