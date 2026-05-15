@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Runlet.Api.Contracts;
 using Runlet.Api.Validation;
 using Runlet.Persistence;
 using Runlet.Shared.Executions;
@@ -62,8 +63,7 @@ public static class RunEndpoints
             var runs = await query
                 .OrderByDescending(workflowRun => workflowRun.CreatedAt)
                 .Take(50)
-                .Select(workflowRun => new
-                {
+                .Select(workflowRun => new WorkflowRunSummaryResponse(
                     workflowRun.Id,
                     workflowRun.Name,
                     workflowRun.Image,
@@ -77,12 +77,11 @@ public static class RunEndpoints
                     workflowRun.CompletedAt,
                     workflowRun.CancellationRequestedAt,
                     workflowRun.LastHeartbeatAt,
-                    StepCount = workflowRun.Steps.Count,
-                    SucceededStepCount = workflowRun.Steps.Count(step => step.Status == WorkflowStepStatus.Succeeded),
-                    FailedStepCount = workflowRun.Steps.Count(step => step.Status == WorkflowStepStatus.Failed),
-                    SkippedStepCount = workflowRun.Steps.Count(step => step.Status == WorkflowStepStatus.Skipped),
-                    CancelledStepCount = workflowRun.Steps.Count(step => step.Status == WorkflowStepStatus.Cancelled)
-                })
+                    workflowRun.Steps.Count,
+                    workflowRun.Steps.Count(step => step.Status == WorkflowStepStatus.Succeeded),
+                    workflowRun.Steps.Count(step => step.Status == WorkflowStepStatus.Failed),
+                    workflowRun.Steps.Count(step => step.Status == WorkflowStepStatus.Skipped),
+                    workflowRun.Steps.Count(step => step.Status == WorkflowStepStatus.Cancelled)))
                 .ToListAsync(cancellationToken);
 
             return Results.Ok(runs);
@@ -96,8 +95,7 @@ public static class RunEndpoints
         {
             var run = await dbContext.WorkflowRuns
                 .AsNoTracking()
-                .Select(workflowRun => new
-                {
+                .Select(workflowRun => new WorkflowRunDetailResponse(
                     workflowRun.Id,
                     workflowRun.Name,
                     workflowRun.Image,
@@ -113,10 +111,9 @@ public static class RunEndpoints
                     workflowRun.ClaimedByWorkerId,
                     workflowRun.ClaimedAt,
                     workflowRun.LastHeartbeatAt,
-                    Steps = workflowRun.Steps
+                    workflowRun.Steps
                         .OrderBy(step => step.Order)
-                        .Select(step => new
-                        {
+                        .Select(step => new WorkflowStepResponse(
                             step.Id,
                             step.Order,
                             step.Command,
@@ -124,10 +121,8 @@ public static class RunEndpoints
                             step.AttemptCount,
                             step.StartedAt,
                             step.CompletedAt,
-                            step.ExitCode
-                        })
-                        .ToList()
-                })
+                            step.ExitCode))
+                        .ToList()))
                 .SingleOrDefaultAsync(workflowRun => workflowRun.Id == id, cancellationToken);
 
             if (run is null)
@@ -139,21 +134,15 @@ public static class RunEndpoints
                 .AsNoTracking()
                 .Where(log => log.WorkflowRunId == id)
                 .OrderBy(log => log.CreatedAt)
-                .Select(log => new
-                {
+                .Select(log => new WorkflowRunLogResponse(
                     log.Id,
                     log.WorkflowStepId,
                     log.CreatedAt,
                     log.Kind,
-                    log.Message
-                })
+                    log.Message))
                 .ToListAsync(cancellationToken);
 
-            return Results.Ok(new
-            {
-                Run = run,
-                Logs = logs
-            });
+            return Results.Ok(new WorkflowRunWithLogsResponse(run, logs));
         })
         .WithName("GetWorkflowRun");
 
@@ -314,15 +303,13 @@ public static class RunEndpoints
             var logs = await dbContext.WorkflowLogEntries
                 .Where(log => log.WorkflowRunId == id)
                 .OrderBy(log => log.CreatedAt)
-                .Select(log => new
-                {
+                .Select(log => new WorkflowLogResponse(
                     log.Id,
                     log.WorkflowRunId,
                     log.WorkflowStepId,
                     log.CreatedAt,
                     log.Kind,
-                    log.Message
-                })
+                    log.Message))
                 .ToListAsync(cancellationToken);
 
             return Results.Ok(logs);
