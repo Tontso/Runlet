@@ -1,5 +1,6 @@
 using Runlet.Persistence;
 using Runlet.Worker;
+using Runlet.Worker.Cancellation;
 using Runlet.Worker.Claiming;
 using Runlet.Worker.Execution;
 using Runlet.Worker.Heartbeats;
@@ -15,6 +16,7 @@ builder.Services.AddSingleton<WorkflowLogWriter>();
 builder.Services.AddSingleton<WorkflowRunFinalizer>();
 builder.Services.AddSingleton<WorkflowRunClaimer>();
 builder.Services.AddSingleton<WorkflowRunHeartbeat>();
+builder.Services.AddSingleton<WorkflowRunCancellationWatcher>();
 builder.Services.AddHostedService<Worker>();
 
 var host = builder.Build();

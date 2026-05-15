@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Runlet.Persistence;
 using Runlet.Shared.Workflows;
+using Runlet.Worker.Cancellation;
 using Runlet.Worker.Claiming;
 using Runlet.Worker.Execution;
 using Runlet.Worker.Heartbeats;
@@ -12,6 +13,7 @@ namespace Runlet.Worker;
 public sealed class Worker(
     IServiceScopeFactory scopeFactory,
     WorkflowRunClaimer runClaimer,
+    WorkflowRunCancellationWatcher cancellationWatcher,
     IWorkflowStepExecutorFactory stepExecutorFactory,
     WorkflowRunHeartbeat runHeartbeat,
     WorkflowRunFinalizer runFinalizer,
@@ -73,7 +75,7 @@ public sealed class Worker(
         {
             foreach (var step in orderedSteps)
             {
-                if (await IsCancellationRequestedAsync(dbContext, run, cancellationToken))
+                if (await cancellationWatcher.IsCancellationRequestedAsync(dbContext, run, cancellationToken))
                 {
                     await runFinalizer.CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
                     return;
@@ -109,7 +111,9 @@ public sealed class Worker(
                         },
                         stepCancellation.Token);
                     var timeoutTask = Task.Delay(TimeSpan.FromSeconds(run.StepTimeoutSeconds), watcherCancellation.Token);
-                    var cancellationRequestTask = WaitForCancellationRequestAsync(run.Id, watcherCancellation.Token);
+                    var cancellationRequestTask = cancellationWatcher.WaitForCancellationRequestAsync(
+                        run.Id,
+                        watcherCancellation.Token);
 
                     var completedTask = await Task.WhenAny(executionTask, timeoutTask, cancellationRequestTask);
 
@@ -118,7 +122,7 @@ public sealed class Worker(
                         await watcherCancellation.CancelAsync();
                         result = await executionTask;
 
-                        if (await IsCancellationRequestedAsync(dbContext, run, cancellationToken))
+                        if (await cancellationWatcher.IsCancellationRequestedAsync(dbContext, run, cancellationToken))
                         {
                             step.CompletedAt = DateTimeOffset.UtcNow;
                             step.Status = WorkflowStepStatus.Cancelled;
@@ -195,7 +199,7 @@ public sealed class Worker(
                 }
             }
 
-            if (await IsCancellationRequestedAsync(dbContext, run, cancellationToken))
+            if (await cancellationWatcher.IsCancellationRequestedAsync(dbContext, run, cancellationToken))
             {
                 await runFinalizer.CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
                 return;
@@ -207,38 +211,6 @@ public sealed class Worker(
         {
             await heartbeatCancellation.CancelAsync();
             await SwallowExpectedCancellationAsync(heartbeatTask);
-        }
-    }
-
-    private static async Task<bool> IsCancellationRequestedAsync(
-        RunletDbContext dbContext,
-        WorkflowRun run,
-        CancellationToken cancellationToken)
-    {
-        await dbContext.Entry(run).ReloadAsync(cancellationToken);
-        return run.CancellationRequestedAt is not null;
-    }
-
-    private async Task WaitForCancellationRequestAsync(
-        Guid workflowRunId,
-        CancellationToken cancellationToken)
-    {
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
-
-            using var scope = scopeFactory.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<RunletDbContext>();
-            var cancellationRequested = await dbContext.WorkflowRuns
-                .AsNoTracking()
-                .Where(run => run.Id == workflowRunId)
-                .Select(run => run.CancellationRequestedAt != null)
-                .SingleAsync(cancellationToken);
-
-            if (cancellationRequested)
-            {
-                return;
-            }
         }
     }
 
