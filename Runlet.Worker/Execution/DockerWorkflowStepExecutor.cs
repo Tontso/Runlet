@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using Runlet.Shared.Executions;
 
 namespace Runlet.Worker.Execution;
 
@@ -8,6 +7,7 @@ public sealed class DockerWorkflowStepExecutor : IWorkflowStepExecutor
     public async Task<StepExecutionResult> ExecuteAsync(
         string image,
         string command,
+        Func<StepOutputLine, CancellationToken, Task> onOutput,
         CancellationToken cancellationToken)
     {
         var containerName = $"runlet-step-{Guid.NewGuid():N}";
@@ -33,12 +33,12 @@ public sealed class DockerWorkflowStepExecutor : IWorkflowStepExecutor
 
         process.Start();
 
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
+        var outputTask = ProcessOutputStreamer.StreamAsync(process, onOutput, cancellationToken);
 
         try
         {
             await process.WaitForExitAsync(cancellationToken);
+            await outputTask;
         }
         catch (OperationCanceledException)
         {
@@ -48,21 +48,11 @@ public sealed class DockerWorkflowStepExecutor : IWorkflowStepExecutor
             }
 
             await ForceRemoveContainerAsync(containerName);
+            await SwallowExpectedCancellationAsync(outputTask);
             throw;
         }
 
-        var stdout = await stdoutTask;
-        var stderr = await stderrTask;
-
-        var outputLines = stdout
-            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
-            .Select(line => new StepOutputLine(WorkflowLogKind.Stdout, line))
-            .Concat(stderr
-                .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
-                .Select(line => new StepOutputLine(WorkflowLogKind.Stderr, line)))
-            .ToList();
-
-        return new StepExecutionResult(process.ExitCode, outputLines);
+        return new StepExecutionResult(process.ExitCode);
     }
 
     private static async Task ForceRemoveContainerAsync(string containerName)
@@ -84,5 +74,16 @@ public sealed class DockerWorkflowStepExecutor : IWorkflowStepExecutor
 
         process.Start();
         await process.WaitForExitAsync(CancellationToken.None);
+    }
+
+    private static async Task SwallowExpectedCancellationAsync(Task task)
+    {
+        try
+        {
+            await task;
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 }

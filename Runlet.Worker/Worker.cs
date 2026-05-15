@@ -122,7 +122,20 @@ public sealed class Worker(
                 using (var stepCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
                 using (var watcherCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
                 {
-                    var executionTask = stepExecutor.ExecuteAsync(run.Image, step.Command, stepCancellation.Token);
+                    var executionTask = stepExecutor.ExecuteAsync(
+                        run.Image,
+                        step.Command,
+                        async (line, outputCancellationToken) =>
+                        {
+                            await AddLogAsync(
+                                dbContext,
+                                run.Id,
+                                step.Id,
+                                line.Kind,
+                                line.Message,
+                                outputCancellationToken);
+                        },
+                        stepCancellation.Token);
                     var timeoutTask = Task.Delay(TimeSpan.FromSeconds(run.StepTimeoutSeconds), watcherCancellation.Token);
                     var cancellationRequestTask = WaitForCancellationRequestAsync(run.Id, watcherCancellation.Token);
 
@@ -193,11 +206,6 @@ public sealed class Worker(
                         await CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
                         return;
                     }
-                }
-
-                foreach (var line in result.OutputLines)
-                {
-                    await AddLogAsync(dbContext, run.Id, step.Id, line.Kind, line.Message, cancellationToken);
                 }
 
                 step.ExitCode = result.ExitCode;

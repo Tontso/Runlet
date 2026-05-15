@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using Runlet.Shared.Executions;
 
 namespace Runlet.Worker.Execution;
 
@@ -8,6 +7,7 @@ public sealed class LocalShellWorkflowStepExecutor : IWorkflowStepExecutor
     public async Task<StepExecutionResult> ExecuteAsync(
         string image,
         string command,
+        Func<StepOutputLine, CancellationToken, Task> onOutput,
         CancellationToken cancellationToken)
     {
         using var process = new Process();
@@ -22,12 +22,12 @@ public sealed class LocalShellWorkflowStepExecutor : IWorkflowStepExecutor
 
         process.Start();
 
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
+        var outputTask = ProcessOutputStreamer.StreamAsync(process, onOutput, cancellationToken);
 
         try
         {
             await process.WaitForExitAsync(cancellationToken);
+            await outputTask;
         }
         catch (OperationCanceledException)
         {
@@ -36,20 +36,21 @@ public sealed class LocalShellWorkflowStepExecutor : IWorkflowStepExecutor
                 process.Kill(entireProcessTree: true);
             }
 
+            await SwallowExpectedCancellationAsync(outputTask);
             throw;
         }
 
-        var stdout = await stdoutTask;
-        var stderr = await stderrTask;
+        return new StepExecutionResult(process.ExitCode);
+    }
 
-        var outputLines = stdout
-            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
-            .Select(line => new StepOutputLine(WorkflowLogKind.Stdout, line))
-            .Concat(stderr
-                .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
-                .Select(line => new StepOutputLine(WorkflowLogKind.Stderr, line)))
-            .ToList();
-
-        return new StepExecutionResult(process.ExitCode, outputLines);
+    private static async Task SwallowExpectedCancellationAsync(Task task)
+    {
+        try
+        {
+            await task;
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 }
