@@ -1,6 +1,7 @@
 const state = {
   runs: [],
   statusFilter: "All",
+  searchText: "",
   selectedRunId: null,
   selectedDetail: null,
   refreshTimer: null
@@ -16,6 +17,7 @@ const els = {
   timeout: document.querySelector("#timeoutInput"),
   steps: document.querySelector("#stepsInput"),
   message: document.querySelector("#message"),
+  runSearch: document.querySelector("#runSearchInput"),
   statusFilter: document.querySelector("#statusFilterInput"),
   runsList: document.querySelector("#runsList"),
   runCount: document.querySelector("#runCount"),
@@ -37,8 +39,12 @@ els.refreshButton.addEventListener("click", async () => {
 
 els.statusFilter.addEventListener("change", async () => {
   state.statusFilter = els.statusFilter.value;
-  state.selectedRunId = getFilteredRuns()[0]?.id ?? null;
-  await refresh();
+  await applyRunFilters();
+});
+
+els.runSearch.addEventListener("input", async () => {
+  state.searchText = els.runSearch.value.trim().toLowerCase();
+  await applyRunFilters();
 });
 
 els.cancelButton.addEventListener("click", async () => {
@@ -161,31 +167,35 @@ async function refresh() {
   try {
     const runs = await fetchJson("/runs");
     state.runs = runs;
-
-    const filteredRuns = getFilteredRuns();
-    const selectedRunStillVisible = filteredRuns.some((run) => run.id === state.selectedRunId);
-
-    if (!selectedRunStillVisible) {
-      state.selectedRunId = filteredRuns[0]?.id ?? null;
-    }
-
-    renderRuns();
-
-    if (state.selectedRunId) {
-      state.selectedDetail = await fetchJson(`/runs/${state.selectedRunId}`);
-      renderDetail();
-    } else {
-      state.selectedDetail = null;
-      renderDetail();
-    }
+    await applyRunFilters();
   } catch (error) {
     setMessage(error.message || "Refresh failed.");
   }
 }
 
+async function applyRunFilters() {
+  const filteredRuns = getFilteredRuns();
+  const selectedRunStillVisible = filteredRuns.some((run) => run.id === state.selectedRunId);
+
+  if (!selectedRunStillVisible) {
+    state.selectedRunId = filteredRuns[0]?.id ?? null;
+  }
+
+  renderRuns();
+
+  if (state.selectedRunId) {
+    state.selectedDetail = await fetchJson(`/runs/${state.selectedRunId}`);
+    renderDetail();
+  } else {
+    state.selectedDetail = null;
+    renderDetail();
+  }
+}
+
 function renderRuns() {
   const filteredRuns = getFilteredRuns();
-  els.runCount.textContent = state.statusFilter === "All"
+  const hasActiveFilter = state.statusFilter !== "All" || state.searchText;
+  els.runCount.textContent = !hasActiveFilter
     ? `${filteredRuns.length} shown`
     : `${filteredRuns.length}/${state.runs.length} shown`;
   els.runsList.replaceChildren();
@@ -193,7 +203,7 @@ function renderRuns() {
   if (filteredRuns.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty-list";
-    empty.textContent = "No runs match this filter.";
+    empty.textContent = "No runs match these filters.";
     els.runsList.append(empty);
     return;
   }
@@ -232,11 +242,16 @@ function renderRuns() {
 }
 
 function getFilteredRuns() {
-  if (state.statusFilter === "All") {
-    return state.runs;
-  }
+  const searchText = state.searchText;
 
-  return state.runs.filter((run) => run.status === state.statusFilter);
+  return state.runs.filter((run) => {
+    const statusMatches = state.statusFilter === "All" || run.status === state.statusFilter;
+    const searchMatches = !searchText
+      || displayRunName(run).toLowerCase().includes(searchText)
+      || run.id.toLowerCase().includes(searchText);
+
+    return statusMatches && searchMatches;
+  });
 }
 
 function renderDetail() {

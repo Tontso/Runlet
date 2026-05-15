@@ -149,7 +149,14 @@ h2 {
 .runs-tools {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
+}
+
+.runs-tools input {
+  width: 160px;
+  padding: 6px 8px;
 }
 
 .runs-tools select {
