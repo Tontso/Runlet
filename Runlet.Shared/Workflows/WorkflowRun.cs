@@ -12,6 +12,8 @@ public sealed class WorkflowRun
 
     public int StepTimeoutSeconds { get; init; } = 300;
 
+    public int MaxRetries { get; init; }
+
     public WorkflowRunStatus Status { get; set; } = WorkflowRunStatus.Pending;
 
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;

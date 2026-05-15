@@ -34,6 +34,11 @@ public static class RunEndpoints
                 return Results.BadRequest("Step timeout must be between 1 and 86400 seconds.");
             }
 
+            if (request.MaxRetries is < 0 or > 10)
+            {
+                return Results.BadRequest("Max retries must be between 0 and 10.");
+            }
+
             var runName = string.IsNullOrWhiteSpace(request.Name) ? null : request.Name.Trim();
 
             if (runName?.Length > 200)
@@ -49,6 +54,7 @@ public static class RunEndpoints
                 Image = request.Image,
                 ExecutionMode = request.ExecutionMode,
                 StepTimeoutSeconds = request.StepTimeoutSeconds,
+                MaxRetries = request.MaxRetries,
                 Steps = request.Steps
                     .Select((command, index) => new WorkflowStep
                     {
@@ -103,6 +109,7 @@ public static class RunEndpoints
                     workflowRun.Image,
                     workflowRun.ExecutionMode,
                     workflowRun.StepTimeoutSeconds,
+                    workflowRun.MaxRetries,
                     workflowRun.Status,
                     workflowRun.CreatedAt,
                     workflowRun.StartedAt,
@@ -135,6 +142,7 @@ public static class RunEndpoints
                     workflowRun.Image,
                     workflowRun.ExecutionMode,
                     workflowRun.StepTimeoutSeconds,
+                    workflowRun.MaxRetries,
                     workflowRun.Status,
                     workflowRun.CreatedAt,
                     workflowRun.StartedAt,
@@ -151,6 +159,7 @@ public static class RunEndpoints
                             step.Order,
                             step.Command,
                             step.Status,
+                            step.AttemptCount,
                             step.StartedAt,
                             step.CompletedAt,
                             step.ExitCode
@@ -326,6 +335,7 @@ public static class RunEndpoints
                 Image = sourceRun.Image,
                 ExecutionMode = sourceRun.ExecutionMode,
                 StepTimeoutSeconds = sourceRun.StepTimeoutSeconds,
+                MaxRetries = sourceRun.MaxRetries,
                 Steps = sourceRun.Steps
                     .OrderBy(step => step.Order)
                     .Select((step, index) => new WorkflowStep

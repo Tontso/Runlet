@@ -5,4 +5,5 @@ public sealed record CreateWorkflowRunRequest(
     IReadOnlyList<string> Steps,
     string? Name = null,
     WorkflowExecutionMode ExecutionMode = WorkflowExecutionMode.LocalShell,
-    int StepTimeoutSeconds = 300);
+    int StepTimeoutSeconds = 300,
+    int MaxRetries = 0);

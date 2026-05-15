@@ -120,49 +120,104 @@ public sealed class Worker(
                     return;
                 }
 
-                step.Status = WorkflowStepStatus.Running;
-                step.StartedAt = DateTimeOffset.UtcNow;
-                await dbContext.SaveChangesAsync(cancellationToken);
-
-                await logWriter.WriteSystemAsync(
-                    dbContext,
-                    run.Id,
-                    step.Id,
-                    $"Starting step {step.Order}: {step.Command}",
-                    cancellationToken);
-
-                StepExecutionResult result;
-                using (var stepCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
-                using (var watcherCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+                while (true)
                 {
-                    var executionTask = stepExecutor.ExecuteAsync(
-                        run.Image,
-                        step.Command,
-                        async (line, outputCancellationToken) =>
+                    if (await cancellationWatcher.IsCancellationRequestedAsync(dbContext, run, cancellationToken))
+                    {
+                        await runFinalizer.CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
+                        return;
+                    }
+
+                    step.Status = WorkflowStepStatus.Running;
+                    step.AttemptCount++;
+                    step.StartedAt = DateTimeOffset.UtcNow;
+                    step.CompletedAt = null;
+                    step.ExitCode = null;
+                    await dbContext.SaveChangesAsync(cancellationToken);
+
+                    await logWriter.WriteSystemAsync(
+                        dbContext,
+                        run.Id,
+                        step.Id,
+                        GetStartingStepMessage(step, run.MaxRetries),
+                        cancellationToken);
+
+                    StepExecutionResult result;
+                    using (var stepCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+                    using (var watcherCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+                    {
+                        var executionTask = stepExecutor.ExecuteAsync(
+                            run.Image,
+                            step.Command,
+                            async (line, outputCancellationToken) =>
+                            {
+                                await logWriter.WriteAsync(
+                                    dbContext,
+                                    run.Id,
+                                    step.Id,
+                                    line.Kind,
+                                    line.Message,
+                                    outputCancellationToken);
+                            },
+                            stepCancellation.Token);
+                        var timeoutTask = Task.Delay(TimeSpan.FromSeconds(run.StepTimeoutSeconds), watcherCancellation.Token);
+                        var cancellationRequestTask = cancellationWatcher.WaitForCancellationRequestAsync(
+                            run.Id,
+                            watcherCancellation.Token);
+
+                        var completedTask = await Task.WhenAny(executionTask, timeoutTask, cancellationRequestTask);
+
+                        if (completedTask == executionTask)
                         {
-                            await logWriter.WriteAsync(
+                            await watcherCancellation.CancelAsync();
+                            result = await executionTask;
+
+                            if (await cancellationWatcher.IsCancellationRequestedAsync(dbContext, run, cancellationToken))
+                            {
+                                step.CompletedAt = DateTimeOffset.UtcNow;
+                                step.Status = WorkflowStepStatus.Cancelled;
+
+                                await logWriter.WriteSystemAsync(
+                                    dbContext,
+                                    run.Id,
+                                    step.Id,
+                                    $"Step {step.Order} completed after cancellation was requested.",
+                                    cancellationToken);
+
+                                await dbContext.SaveChangesAsync(cancellationToken);
+                                await runFinalizer.CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
+                                return;
+                            }
+                        }
+
+                        else if (completedTask == timeoutTask)
+                        {
+                            await watcherCancellation.CancelAsync();
+                            await stepCancellation.CancelAsync();
+                            await SwallowExpectedCancellationAsync(executionTask);
+
+                            step.CompletedAt = DateTimeOffset.UtcNow;
+                            step.Status = WorkflowStepStatus.Failed;
+
+                            await logWriter.WriteSystemAsync(
                                 dbContext,
                                 run.Id,
                                 step.Id,
-                                line.Kind,
-                                line.Message,
-                                outputCancellationToken);
-                        },
-                        stepCancellation.Token);
-                    var timeoutTask = Task.Delay(TimeSpan.FromSeconds(run.StepTimeoutSeconds), watcherCancellation.Token);
-                    var cancellationRequestTask = cancellationWatcher.WaitForCancellationRequestAsync(
-                        run.Id,
-                        watcherCancellation.Token);
+                                $"Step {step.Order} timed out after {run.StepTimeoutSeconds} seconds.",
+                                cancellationToken);
 
-                    var completedTask = await Task.WhenAny(executionTask, timeoutTask, cancellationRequestTask);
+                            await dbContext.SaveChangesAsync(cancellationToken);
+                            await runFinalizer.FailRunAsync(dbContext, run, step, orderedSteps, cancellationToken);
+                            return;
+                        }
 
-                    if (completedTask == executionTask)
-                    {
-                        await watcherCancellation.CancelAsync();
-                        result = await executionTask;
-
-                        if (await cancellationWatcher.IsCancellationRequestedAsync(dbContext, run, cancellationToken))
+                        else
                         {
+                            await cancellationRequestTask;
+                            await watcherCancellation.CancelAsync();
+                            await stepCancellation.CancelAsync();
+                            await SwallowExpectedCancellationAsync(executionTask);
+
                             step.CompletedAt = DateTimeOffset.UtcNow;
                             step.Status = WorkflowStepStatus.Cancelled;
 
@@ -170,7 +225,7 @@ public sealed class Worker(
                                 dbContext,
                                 run.Id,
                                 step.Id,
-                                $"Step {step.Order} completed after cancellation was requested.",
+                                $"Step {step.Order} cancelled while running.",
                                 cancellationToken);
 
                             await dbContext.SaveChangesAsync(cancellationToken);
@@ -179,62 +234,33 @@ public sealed class Worker(
                         }
                     }
 
-                    else if (completedTask == timeoutTask)
+                    step.ExitCode = result.ExitCode;
+                    step.CompletedAt = DateTimeOffset.UtcNow;
+                    step.Status = result.ExitCode == 0
+                        ? WorkflowStepStatus.Succeeded
+                        : WorkflowStepStatus.Failed;
+
+                    await dbContext.SaveChangesAsync(cancellationToken);
+
+                    if (step.Status == WorkflowStepStatus.Failed)
                     {
-                        await watcherCancellation.CancelAsync();
-                        await stepCancellation.CancelAsync();
-                        await SwallowExpectedCancellationAsync(executionTask);
+                        if (step.AttemptCount <= run.MaxRetries)
+                        {
+                            await logWriter.WriteSystemAsync(
+                                dbContext,
+                                run.Id,
+                                step.Id,
+                                $"Step {step.Order} failed with exit code {step.ExitCode}. Retrying attempt {step.AttemptCount + 1}/{run.MaxRetries + 1}.",
+                                cancellationToken);
 
-                        step.CompletedAt = DateTimeOffset.UtcNow;
-                        step.Status = WorkflowStepStatus.Failed;
+                            continue;
+                        }
 
-                        await logWriter.WriteSystemAsync(
-                            dbContext,
-                            run.Id,
-                            step.Id,
-                            $"Step {step.Order} timed out after {run.StepTimeoutSeconds} seconds.",
-                            cancellationToken);
-
-                        await dbContext.SaveChangesAsync(cancellationToken);
                         await runFinalizer.FailRunAsync(dbContext, run, step, orderedSteps, cancellationToken);
                         return;
                     }
 
-                    else
-                    {
-                        await cancellationRequestTask;
-                        await watcherCancellation.CancelAsync();
-                        await stepCancellation.CancelAsync();
-                        await SwallowExpectedCancellationAsync(executionTask);
-
-                        step.CompletedAt = DateTimeOffset.UtcNow;
-                        step.Status = WorkflowStepStatus.Cancelled;
-
-                        await logWriter.WriteSystemAsync(
-                            dbContext,
-                            run.Id,
-                            step.Id,
-                            $"Step {step.Order} cancelled while running.",
-                            cancellationToken);
-
-                        await dbContext.SaveChangesAsync(cancellationToken);
-                        await runFinalizer.CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
-                        return;
-                    }
-                }
-
-                step.ExitCode = result.ExitCode;
-                step.CompletedAt = DateTimeOffset.UtcNow;
-                step.Status = result.ExitCode == 0
-                    ? WorkflowStepStatus.Succeeded
-                    : WorkflowStepStatus.Failed;
-
-                await dbContext.SaveChangesAsync(cancellationToken);
-
-                if (step.Status == WorkflowStepStatus.Failed)
-                {
-                    await runFinalizer.FailRunAsync(dbContext, run, step, orderedSteps, cancellationToken);
-                    return;
+                    break;
                 }
             }
 
@@ -262,6 +288,18 @@ public sealed class Worker(
         catch (OperationCanceledException)
         {
         }
+    }
+
+    private static string GetStartingStepMessage(
+        WorkflowStep step,
+        int maxRetries)
+    {
+        if (maxRetries == 0)
+        {
+            return $"Starting step {step.Order}: {step.Command}";
+        }
+
+        return $"Starting step {step.Order} attempt {step.AttemptCount}/{maxRetries + 1}: {step.Command}";
     }
 
 }

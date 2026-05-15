@@ -32,6 +32,10 @@ public sealed class WorkflowStepConfiguration : IEntityTypeConfiguration<Workflo
             .HasMaxLength(50)
             .IsRequired();
 
+        builder.Property(step => step.AttemptCount)
+            .HasColumnName("attempt_count")
+            .IsRequired();
+
         builder.Property(step => step.StartedAt)
             .HasColumnName("started_at");
 

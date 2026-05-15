@@ -12,6 +12,8 @@ public sealed class WorkflowStep
 
     public WorkflowStepStatus Status { get; set; } = WorkflowStepStatus.Pending;
 
+    public int AttemptCount { get; set; }
+
     public DateTimeOffset? StartedAt { get; set; }
 
     public DateTimeOffset? CompletedAt { get; set; }

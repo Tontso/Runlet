@@ -34,6 +34,10 @@ public sealed class WorkflowRunConfiguration : IEntityTypeConfiguration<Workflow
             .HasColumnName("step_timeout_seconds")
             .IsRequired();
 
+        builder.Property(run => run.MaxRetries)
+            .HasColumnName("max_retries")
+            .IsRequired();
+
         builder.Property(run => run.Status)
             .HasColumnName("status")
             .HasConversion<string>()

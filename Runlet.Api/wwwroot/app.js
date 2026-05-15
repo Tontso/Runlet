@@ -16,6 +16,7 @@ const els = {
   image: document.querySelector("#imageInput"),
   executionMode: document.querySelector("#executionModeInput"),
   timeout: document.querySelector("#timeoutInput"),
+  maxRetries: document.querySelector("#maxRetriesInput"),
   steps: document.querySelector("#stepsInput"),
   message: document.querySelector("#message"),
   runSearch: document.querySelector("#runSearchInput"),
@@ -87,6 +88,7 @@ async function createRun() {
     image: els.image.value.trim(),
     executionMode: els.executionMode.value,
     stepTimeoutSeconds: Number(els.timeout.value),
+    maxRetries: Number(els.maxRetries.value),
     steps
   };
 
@@ -272,6 +274,7 @@ function renderDetail() {
       ${summaryItem("Executor", escapeHtml(run.executionMode))}
       ${summaryItem("Image", escapeHtml(run.image))}
       ${summaryItem("Timeout", `${run.stepTimeoutSeconds}s`)}
+      ${summaryItem("Retries", run.maxRetries)}
       ${summaryItem("Created", formatDate(run.createdAt))}
       ${summaryItem("Started", formatDate(run.startedAt))}
       ${summaryItem("Completed", formatDate(run.completedAt))}
@@ -300,6 +303,7 @@ function renderStep(step) {
       <div class="command">${escapeHtml(step.command)}</div>
       <div class="step-meta muted">
         <span>Exit: ${step.exitCode ?? "-"}</span>
+        <span>Attempts: ${step.attemptCount}</span>
         <span>Duration: ${formatDuration(step.startedAt, step.completedAt, step.status)}</span>
       </div>
     </div>
