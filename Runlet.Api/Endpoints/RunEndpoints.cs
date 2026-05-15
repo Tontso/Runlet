@@ -44,32 +44,14 @@ public static class RunEndpoints
                 return Results.BadRequest("Retry delay must be between 0 and 3600 seconds.");
             }
 
-            var runName = string.IsNullOrWhiteSpace(request.Name) ? null : request.Name.Trim();
+            var runName = NormalizeRunName(request.Name);
 
             if (runName?.Length > 200)
             {
                 return Results.BadRequest("Run name cannot be longer than 200 characters.");
             }
 
-            var runId = Guid.NewGuid();
-            var run = new WorkflowRun
-            {
-                Id = runId,
-                Name = runName,
-                Image = request.Image,
-                ExecutionMode = request.ExecutionMode,
-                StepTimeoutSeconds = request.StepTimeoutSeconds,
-                MaxRetries = request.MaxRetries,
-                RetryDelaySeconds = request.RetryDelaySeconds,
-                Steps = request.Steps
-                    .Select((command, index) => new WorkflowStep
-                    {
-                        WorkflowRunId = runId,
-                        Order = index + 1,
-                        Command = command
-                    })
-                    .ToList()
-            };
+            var run = CreateRunFromRequest(request, runName);
 
             dbContext.WorkflowRuns.Add(run);
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -335,26 +317,7 @@ public static class RunEndpoints
                 return Results.Conflict($"Run is {sourceRun.Status}; only completed runs can be rerun.");
             }
 
-            var runId = Guid.NewGuid();
-            var run = new WorkflowRun
-            {
-                Id = runId,
-                Name = sourceRun.Name,
-                Image = sourceRun.Image,
-                ExecutionMode = sourceRun.ExecutionMode,
-                StepTimeoutSeconds = sourceRun.StepTimeoutSeconds,
-                MaxRetries = sourceRun.MaxRetries,
-                RetryDelaySeconds = sourceRun.RetryDelaySeconds,
-                Steps = sourceRun.Steps
-                    .OrderBy(step => step.Order)
-                    .Select((step, index) => new WorkflowStep
-                    {
-                        WorkflowRunId = runId,
-                        Order = index + 1,
-                        Command = step.Command
-                    })
-                    .ToList()
-            };
+            var run = CloneRun(sourceRun);
 
             dbContext.WorkflowRuns.Add(run);
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -395,5 +358,69 @@ public static class RunEndpoints
         .WithName("GetWorkflowRunLogs");
 
         return app;
+    }
+
+    private static WorkflowRun CreateRunFromRequest(
+        CreateWorkflowRunRequest request,
+        string? runName)
+    {
+        return CreateRun(
+            runName,
+            request.Image,
+            request.ExecutionMode,
+            request.StepTimeoutSeconds,
+            request.MaxRetries,
+            request.RetryDelaySeconds,
+            request.Steps);
+    }
+
+    private static WorkflowRun CloneRun(WorkflowRun sourceRun)
+    {
+        return CreateRun(
+            sourceRun.Name,
+            sourceRun.Image,
+            sourceRun.ExecutionMode,
+            sourceRun.StepTimeoutSeconds,
+            sourceRun.MaxRetries,
+            sourceRun.RetryDelaySeconds,
+            sourceRun.Steps
+                .OrderBy(step => step.Order)
+                .Select(step => step.Command));
+    }
+
+    private static WorkflowRun CreateRun(
+        string? name,
+        string image,
+        WorkflowExecutionMode executionMode,
+        int stepTimeoutSeconds,
+        int maxRetries,
+        int retryDelaySeconds,
+        IEnumerable<string> commands)
+    {
+        var runId = Guid.NewGuid();
+
+        return new WorkflowRun
+        {
+            Id = runId,
+            Name = name,
+            Image = image,
+            ExecutionMode = executionMode,
+            StepTimeoutSeconds = stepTimeoutSeconds,
+            MaxRetries = maxRetries,
+            RetryDelaySeconds = retryDelaySeconds,
+            Steps = commands
+                .Select((command, index) => new WorkflowStep
+                {
+                    WorkflowRunId = runId,
+                    Order = index + 1,
+                    Command = command
+                })
+                .ToList()
+        };
+    }
+
+    private static string? NormalizeRunName(string? name)
+    {
+        return string.IsNullOrWhiteSpace(name) ? null : name.Trim();
     }
 }
