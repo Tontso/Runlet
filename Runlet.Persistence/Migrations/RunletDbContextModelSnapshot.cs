@@ -104,6 +104,11 @@ namespace Runlet.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_heartbeat_at");
 
+                    b.Property<string>("Name")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
                     b.Property<DateTimeOffset?>("StartedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("started_at");

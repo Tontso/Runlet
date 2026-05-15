@@ -4,6 +4,8 @@ public sealed class WorkflowRun
 {
     public Guid Id { get; init; } = Guid.NewGuid();
 
+    public string? Name { get; init; }
+
     public required string Image { get; init; }
 
     public WorkflowExecutionMode ExecutionMode { get; init; } = WorkflowExecutionMode.LocalShell;

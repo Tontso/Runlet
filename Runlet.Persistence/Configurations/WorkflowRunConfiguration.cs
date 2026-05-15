@@ -15,6 +15,10 @@ public sealed class WorkflowRunConfiguration : IEntityTypeConfiguration<Workflow
         builder.Property(run => run.Id)
             .HasColumnName("id");
 
+        builder.Property(run => run.Name)
+            .HasColumnName("name")
+            .HasMaxLength(200);
+
         builder.Property(run => run.Image)
             .HasColumnName("image")
             .HasMaxLength(500)

@@ -10,6 +10,7 @@ const staleHeartbeatSeconds = 20;
 
 const els = {
   form: document.querySelector("#createRunForm"),
+  name: document.querySelector("#nameInput"),
   image: document.querySelector("#imageInput"),
   executionMode: document.querySelector("#executionModeInput"),
   timeout: document.querySelector("#timeoutInput"),
@@ -74,6 +75,7 @@ async function createRun() {
     .filter(Boolean);
 
   const body = {
+    name: els.name.value.trim() || null,
     image: els.image.value.trim(),
     executionMode: els.executionMode.value,
     stepTimeoutSeconds: Number(els.timeout.value),
@@ -95,7 +97,7 @@ async function createRun() {
 
     const run = await response.json();
     state.selectedRunId = run.id;
-    setMessage(`Created ${shortId(run.id)}.`);
+    setMessage(`Created ${displayRunName(run)}.`);
     await refresh();
   } catch (error) {
     setMessage(error.message || "Could not create run.");
@@ -131,7 +133,7 @@ async function rerunRun(id) {
 
     const run = await response.json();
     state.selectedRunId = run.id;
-    setMessage(`Created rerun ${shortId(run.id)}.`);
+    setMessage(`Created rerun ${displayRunName(run)}.`);
     await refresh();
   } catch (error) {
     setMessage(error.message || "Could not rerun workflow.");
@@ -207,9 +209,10 @@ function renderRuns() {
 
     item.innerHTML = `
       <div class="run-title">
-        <span class="run-id">${escapeHtml(shortId(run.id))}</span>
+        <span class="run-id">${escapeHtml(displayRunName(run))}</span>
         <span class="badges">${statusBadge(run.status)}${staleBadge(run)}</span>
       </div>
+      <div class="muted">ID ${escapeHtml(shortId(run.id))}</div>
       <div class="meta-row">
         <span>${escapeHtml(run.executionMode)}</span>
         <span class="muted">${escapeHtml(run.image)}</span>
@@ -258,7 +261,9 @@ function renderDetail() {
 
   els.runDetail.innerHTML = `
     <div class="summary-grid">
+      ${summaryItem("Name", escapeHtml(displayRunName(run)))}
       ${summaryItem("Status", `${statusBadge(run.status)}${staleBadge(run)}`)}
+      ${summaryItem("ID", escapeHtml(shortId(run.id)))}
       ${summaryItem("Executor", escapeHtml(run.executionMode))}
       ${summaryItem("Image", escapeHtml(run.image))}
       ${summaryItem("Timeout", `${run.stepTimeoutSeconds}s`)}
@@ -341,6 +346,10 @@ function setMessage(message) {
 
 function shortId(id) {
   return id.slice(0, 8);
+}
+
+function displayRunName(run) {
+  return run.name?.trim() || shortId(run.id);
 }
 
 function formatDate(value) {

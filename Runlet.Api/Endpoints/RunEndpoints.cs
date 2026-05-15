@@ -34,10 +34,18 @@ public static class RunEndpoints
                 return Results.BadRequest("Step timeout must be between 1 and 86400 seconds.");
             }
 
+            var runName = string.IsNullOrWhiteSpace(request.Name) ? null : request.Name.Trim();
+
+            if (runName?.Length > 200)
+            {
+                return Results.BadRequest("Run name cannot be longer than 200 characters.");
+            }
+
             var runId = Guid.NewGuid();
             var run = new WorkflowRun
             {
                 Id = runId,
+                Name = runName,
                 Image = request.Image,
                 ExecutionMode = request.ExecutionMode,
                 StepTimeoutSeconds = request.StepTimeoutSeconds,
@@ -69,6 +77,7 @@ public static class RunEndpoints
                 .Select(workflowRun => new
                 {
                     workflowRun.Id,
+                    workflowRun.Name,
                     workflowRun.Image,
                     workflowRun.ExecutionMode,
                     workflowRun.StepTimeoutSeconds,
@@ -100,6 +109,7 @@ public static class RunEndpoints
                 .Select(workflowRun => new
                 {
                     workflowRun.Id,
+                    workflowRun.Name,
                     workflowRun.Image,
                     workflowRun.ExecutionMode,
                     workflowRun.StepTimeoutSeconds,
@@ -290,6 +300,7 @@ public static class RunEndpoints
             var run = new WorkflowRun
             {
                 Id = runId,
+                Name = sourceRun.Name,
                 Image = sourceRun.Image,
                 ExecutionMode = sourceRun.ExecutionMode,
                 StepTimeoutSeconds = sourceRun.StepTimeoutSeconds,
