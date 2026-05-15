@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Runlet.Api.Validation;
 using Runlet.Persistence;
 using Runlet.Shared.Executions;
 using Runlet.Shared.Workflows;
@@ -14,42 +15,13 @@ public static class RunEndpoints
             RunletDbContext dbContext,
             CancellationToken cancellationToken) =>
         {
-            if (string.IsNullOrWhiteSpace(request.Image))
+            var validationError = CreateWorkflowRunRequestValidator.Validate(request);
+            if (validationError is not null)
             {
-                return Results.BadRequest("Workflow image is required.");
-            }
-
-            if (request.Steps.Count == 0)
-            {
-                return Results.BadRequest("At least one workflow step is required.");
-            }
-
-            if (request.Steps.Any(string.IsNullOrWhiteSpace))
-            {
-                return Results.BadRequest("Workflow steps cannot be empty.");
-            }
-
-            if (request.StepTimeoutSeconds is < 1 or > 86_400)
-            {
-                return Results.BadRequest("Step timeout must be between 1 and 86400 seconds.");
-            }
-
-            if (request.MaxRetries is < 0 or > 10)
-            {
-                return Results.BadRequest("Max retries must be between 0 and 10.");
-            }
-
-            if (request.RetryDelaySeconds is < 0 or > 3_600)
-            {
-                return Results.BadRequest("Retry delay must be between 0 and 3600 seconds.");
+                return Results.BadRequest(validationError);
             }
 
             var runName = NormalizeRunName(request.Name);
-
-            if (runName?.Length > 200)
-            {
-                return Results.BadRequest("Run name cannot be longer than 200 characters.");
-            }
 
             var run = CreateRunFromRequest(request, runName);
 
