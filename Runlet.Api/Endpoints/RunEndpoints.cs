@@ -39,6 +39,11 @@ public static class RunEndpoints
                 return Results.BadRequest("Max retries must be between 0 and 10.");
             }
 
+            if (request.RetryDelaySeconds is < 0 or > 3_600)
+            {
+                return Results.BadRequest("Retry delay must be between 0 and 3600 seconds.");
+            }
+
             var runName = string.IsNullOrWhiteSpace(request.Name) ? null : request.Name.Trim();
 
             if (runName?.Length > 200)
@@ -55,6 +60,7 @@ public static class RunEndpoints
                 ExecutionMode = request.ExecutionMode,
                 StepTimeoutSeconds = request.StepTimeoutSeconds,
                 MaxRetries = request.MaxRetries,
+                RetryDelaySeconds = request.RetryDelaySeconds,
                 Steps = request.Steps
                     .Select((command, index) => new WorkflowStep
                     {
@@ -110,6 +116,7 @@ public static class RunEndpoints
                     workflowRun.ExecutionMode,
                     workflowRun.StepTimeoutSeconds,
                     workflowRun.MaxRetries,
+                    workflowRun.RetryDelaySeconds,
                     workflowRun.Status,
                     workflowRun.CreatedAt,
                     workflowRun.StartedAt,
@@ -143,6 +150,7 @@ public static class RunEndpoints
                     workflowRun.ExecutionMode,
                     workflowRun.StepTimeoutSeconds,
                     workflowRun.MaxRetries,
+                    workflowRun.RetryDelaySeconds,
                     workflowRun.Status,
                     workflowRun.CreatedAt,
                     workflowRun.StartedAt,
@@ -336,6 +344,7 @@ public static class RunEndpoints
                 ExecutionMode = sourceRun.ExecutionMode,
                 StepTimeoutSeconds = sourceRun.StepTimeoutSeconds,
                 MaxRetries = sourceRun.MaxRetries,
+                RetryDelaySeconds = sourceRun.RetryDelaySeconds,
                 Steps = sourceRun.Steps
                     .OrderBy(step => step.Order)
                     .Select((step, index) => new WorkflowStep

@@ -113,6 +113,10 @@ namespace Runlet.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("max_retries");
 
+                    b.Property<int>("RetryDelaySeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("retry_delay_seconds");
+
                     b.Property<DateTimeOffset?>("StartedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("started_at");

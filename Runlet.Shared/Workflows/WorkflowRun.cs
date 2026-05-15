@@ -14,6 +14,8 @@ public sealed class WorkflowRun
 
     public int MaxRetries { get; init; }
 
+    public int RetryDelaySeconds { get; init; }
+
     public WorkflowRunStatus Status { get; set; } = WorkflowRunStatus.Pending;
 
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;

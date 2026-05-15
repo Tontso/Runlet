@@ -6,4 +6,5 @@ public sealed record CreateWorkflowRunRequest(
     string? Name = null,
     WorkflowExecutionMode ExecutionMode = WorkflowExecutionMode.LocalShell,
     int StepTimeoutSeconds = 300,
-    int MaxRetries = 0);
+    int MaxRetries = 0,
+    int RetryDelaySeconds = 0);

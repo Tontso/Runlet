@@ -17,6 +17,7 @@ const els = {
   executionMode: document.querySelector("#executionModeInput"),
   timeout: document.querySelector("#timeoutInput"),
   maxRetries: document.querySelector("#maxRetriesInput"),
+  retryDelay: document.querySelector("#retryDelayInput"),
   steps: document.querySelector("#stepsInput"),
   message: document.querySelector("#message"),
   runSearch: document.querySelector("#runSearchInput"),
@@ -89,6 +90,7 @@ async function createRun() {
     executionMode: els.executionMode.value,
     stepTimeoutSeconds: Number(els.timeout.value),
     maxRetries: Number(els.maxRetries.value),
+    retryDelaySeconds: Number(els.retryDelay.value),
     steps
   };
 
@@ -275,6 +277,7 @@ function renderDetail() {
       ${summaryItem("Image", escapeHtml(run.image))}
       ${summaryItem("Timeout", `${run.stepTimeoutSeconds}s`)}
       ${summaryItem("Retries", run.maxRetries)}
+      ${summaryItem("Retry delay", `${run.retryDelaySeconds}s`)}
       ${summaryItem("Created", formatDate(run.createdAt))}
       ${summaryItem("Started", formatDate(run.startedAt))}
       ${summaryItem("Completed", formatDate(run.completedAt))}

@@ -38,6 +38,10 @@ public sealed class WorkflowRunConfiguration : IEntityTypeConfiguration<Workflow
             .HasColumnName("max_retries")
             .IsRequired();
 
+        builder.Property(run => run.RetryDelaySeconds)
+            .HasColumnName("retry_delay_seconds")
+            .IsRequired();
+
         builder.Property(run => run.Status)
             .HasColumnName("status")
             .HasConversion<string>()

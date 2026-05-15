@@ -250,8 +250,30 @@ public sealed class Worker(
                                 dbContext,
                                 run.Id,
                                 step.Id,
-                                $"Step {step.Order} failed with exit code {step.ExitCode}. Retrying attempt {step.AttemptCount + 1}/{run.MaxRetries + 1}.",
+                                GetRetryMessage(step, run),
                                 cancellationToken);
+
+                            if (run.RetryDelaySeconds > 0)
+                            {
+                                using var retryWatcherCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                                var retryDelayTask = Task.Delay(
+                                    TimeSpan.FromSeconds(run.RetryDelaySeconds),
+                                    retryWatcherCancellation.Token);
+                                var cancellationRequestTask = cancellationWatcher.WaitForCancellationRequestAsync(
+                                    run.Id,
+                                    retryWatcherCancellation.Token);
+
+                                var completedTask = await Task.WhenAny(retryDelayTask, cancellationRequestTask);
+                                if (completedTask == cancellationRequestTask)
+                                {
+                                    await cancellationRequestTask;
+                                    await runFinalizer.CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
+                                    return;
+                                }
+
+                                await retryWatcherCancellation.CancelAsync();
+                                await SwallowExpectedCancellationAsync(cancellationRequestTask);
+                            }
 
                             continue;
                         }
@@ -300,6 +322,17 @@ public sealed class Worker(
         }
 
         return $"Starting step {step.Order} attempt {step.AttemptCount}/{maxRetries + 1}: {step.Command}";
+    }
+
+    private static string GetRetryMessage(
+        WorkflowStep step,
+        WorkflowRun run)
+    {
+        var message = $"Step {step.Order} failed with exit code {step.ExitCode}. Retrying attempt {step.AttemptCount + 1}/{run.MaxRetries + 1}.";
+
+        return run.RetryDelaySeconds == 0
+            ? message
+            : $"{message} Waiting {run.RetryDelaySeconds} seconds before retry.";
     }
 
 }
