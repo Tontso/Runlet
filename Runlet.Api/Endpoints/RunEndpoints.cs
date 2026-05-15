@@ -120,34 +120,7 @@ public static class RunEndpoints
         {
             var run = await dbContext.WorkflowRuns
                 .AsNoTracking()
-                .Select(workflowRun => new WorkflowRunDetailResponse(
-                    workflowRun.Id,
-                    workflowRun.Name,
-                    workflowRun.Image,
-                    workflowRun.ExecutionMode,
-                    workflowRun.StepTimeoutSeconds,
-                    workflowRun.MaxRetries,
-                    workflowRun.RetryDelaySeconds,
-                    workflowRun.Status,
-                    workflowRun.CreatedAt,
-                    workflowRun.StartedAt,
-                    workflowRun.CompletedAt,
-                    workflowRun.CancellationRequestedAt,
-                    workflowRun.ClaimedByWorkerId,
-                    workflowRun.ClaimedAt,
-                    workflowRun.LastHeartbeatAt,
-                    workflowRun.Steps
-                        .OrderBy(step => step.Order)
-                        .Select(step => new WorkflowStepResponse(
-                            step.Id,
-                            step.Order,
-                            step.Command,
-                            step.Status,
-                            step.AttemptCount,
-                            step.StartedAt,
-                            step.CompletedAt,
-                            step.ExitCode))
-                        .ToList()))
+                .Include(workflowRun => workflowRun.Steps)
                 .SingleOrDefaultAsync(workflowRun => workflowRun.Id == id, cancellationToken);
 
             if (run is null)
@@ -159,15 +132,11 @@ public static class RunEndpoints
                 .AsNoTracking()
                 .Where(log => log.WorkflowRunId == id)
                 .OrderBy(log => log.CreatedAt)
-                .Select(log => new WorkflowRunLogResponse(
-                    log.Id,
-                    log.WorkflowStepId,
-                    log.CreatedAt,
-                    log.Kind,
-                    log.Message))
                 .ToListAsync(cancellationToken);
 
-            return Results.Ok(new WorkflowRunWithLogsResponse(run, logs));
+            return Results.Ok(new WorkflowRunWithLogsResponse(
+                ToRunDetailResponse(run),
+                logs.Select(ToRunLogResponse).ToList()));
         })
         .WithName("GetWorkflowRun");
 
@@ -326,18 +295,12 @@ public static class RunEndpoints
             }
 
             var logs = await dbContext.WorkflowLogEntries
+                .AsNoTracking()
                 .Where(log => log.WorkflowRunId == id)
                 .OrderBy(log => log.CreatedAt)
-                .Select(log => new WorkflowLogResponse(
-                    log.Id,
-                    log.WorkflowRunId,
-                    log.WorkflowStepId,
-                    log.CreatedAt,
-                    log.Kind,
-                    log.Message))
                 .ToListAsync(cancellationToken);
 
-            return Results.Ok(logs);
+            return Results.Ok(logs.Select(ToLogResponse).ToList());
         })
         .WithName("GetWorkflowRunLogs");
 
@@ -406,5 +369,63 @@ public static class RunEndpoints
     private static string? NormalizeRunName(string? name)
     {
         return string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+    }
+
+    private static WorkflowRunDetailResponse ToRunDetailResponse(WorkflowRun run)
+    {
+        return new WorkflowRunDetailResponse(
+            run.Id,
+            run.Name,
+            run.Image,
+            run.ExecutionMode,
+            run.StepTimeoutSeconds,
+            run.MaxRetries,
+            run.RetryDelaySeconds,
+            run.Status,
+            run.CreatedAt,
+            run.StartedAt,
+            run.CompletedAt,
+            run.CancellationRequestedAt,
+            run.ClaimedByWorkerId,
+            run.ClaimedAt,
+            run.LastHeartbeatAt,
+            run.Steps
+                .OrderBy(step => step.Order)
+                .Select(ToStepResponse)
+                .ToList());
+    }
+
+    private static WorkflowStepResponse ToStepResponse(WorkflowStep step)
+    {
+        return new WorkflowStepResponse(
+            step.Id,
+            step.Order,
+            step.Command,
+            step.Status,
+            step.AttemptCount,
+            step.StartedAt,
+            step.CompletedAt,
+            step.ExitCode);
+    }
+
+    private static WorkflowRunLogResponse ToRunLogResponse(WorkflowLogEntry log)
+    {
+        return new WorkflowRunLogResponse(
+            log.Id,
+            log.WorkflowStepId,
+            log.CreatedAt,
+            log.Kind,
+            log.Message);
+    }
+
+    private static WorkflowLogResponse ToLogResponse(WorkflowLogEntry log)
+    {
+        return new WorkflowLogResponse(
+            log.Id,
+            log.WorkflowRunId,
+            log.WorkflowStepId,
+            log.CreatedAt,
+            log.Kind,
+            log.Message);
     }
 }
