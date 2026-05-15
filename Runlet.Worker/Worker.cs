@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Runlet.Persistence;
 using Runlet.Shared.Workflows;
 using Runlet.Worker.Cancellation;
@@ -18,13 +19,41 @@ public sealed class Worker(
     WorkflowRunHeartbeat runHeartbeat,
     WorkflowRunFinalizer runFinalizer,
     WorkflowLogWriter logWriter,
+    IOptions<WorkerOptions> options,
     ILogger<Worker> logger) : BackgroundService
 {
     private readonly string workerId = $"{Environment.MachineName}-{Guid.NewGuid():N}";
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        logger.LogInformation("Runlet worker {WorkerId} started.", workerId);
+        var maxConcurrentRuns = Math.Max(1, options.Value.MaxConcurrentRuns);
+
+        logger.LogInformation(
+            "Runlet worker {WorkerId} started with {MaxConcurrentRuns} run slot(s).",
+            workerId,
+            maxConcurrentRuns);
+
+        var runSlots = Enumerable
+            .Range(1, maxConcurrentRuns)
+            .Select(slotNumber => ExecuteRunSlotAsync(slotNumber, stoppingToken))
+            .ToArray();
+
+        try
+        {
+            await Task.WhenAll(runSlots);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+        }
+
+        logger.LogInformation("Runlet worker {WorkerId} stopped.", workerId);
+    }
+
+    private async Task ExecuteRunSlotAsync(
+        int slotNumber,
+        CancellationToken stoppingToken)
+    {
+        logger.LogInformation("Runlet worker {WorkerId} slot {SlotNumber} started.", workerId, slotNumber);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -40,6 +69,12 @@ public sealed class Worker(
                     continue;
                 }
 
+                logger.LogInformation(
+                    "Runlet worker {WorkerId} slot {SlotNumber} executing run {RunId}.",
+                    workerId,
+                    slotNumber,
+                    run.Id);
+
                 await ExecuteRunAsync(dbContext, run, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -48,12 +83,16 @@ public sealed class Worker(
             }
             catch (Exception exception)
             {
-                logger.LogError(exception, "Worker loop failed.");
+                logger.LogError(
+                    exception,
+                    "Worker {WorkerId} slot {SlotNumber} loop failed.",
+                    workerId,
+                    slotNumber);
                 await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
             }
         }
 
-        logger.LogInformation("Runlet worker {WorkerId} stopped.", workerId);
+        logger.LogInformation("Runlet worker {WorkerId} slot {SlotNumber} stopped.", workerId, slotNumber);
     }
 
     private async Task ExecuteRunAsync(

@@ -8,6 +8,7 @@ using Runlet.Worker.Lifecycle;
 using Runlet.Worker.Logging;
 
 var builder = Host.CreateApplicationBuilder(args);
+builder.Services.Configure<WorkerOptions>(builder.Configuration.GetSection("Runlet:Worker"));
 builder.Services.AddRunletPersistence(builder.Configuration);
 builder.Services.AddSingleton<LocalShellWorkflowStepExecutor>();
 builder.Services.AddSingleton<DockerWorkflowStepExecutor>();
