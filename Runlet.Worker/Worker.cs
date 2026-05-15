@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Runlet.Persistence;
 using Runlet.Shared.Workflows;
+using Runlet.Worker.Claiming;
 using Runlet.Worker.Execution;
+using Runlet.Worker.Heartbeats;
 using Runlet.Worker.Lifecycle;
 using Runlet.Worker.Logging;
 
@@ -9,13 +11,13 @@ namespace Runlet.Worker;
 
 public sealed class Worker(
     IServiceScopeFactory scopeFactory,
+    WorkflowRunClaimer runClaimer,
     IWorkflowStepExecutorFactory stepExecutorFactory,
+    WorkflowRunHeartbeat runHeartbeat,
     WorkflowRunFinalizer runFinalizer,
     WorkflowLogWriter logWriter,
     ILogger<Worker> logger) : BackgroundService
 {
-    private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(5);
-
     private readonly string workerId = $"{Environment.MachineName}-{Guid.NewGuid():N}";
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -29,7 +31,7 @@ public sealed class Worker(
                 using var scope = scopeFactory.CreateScope();
                 var dbContext = scope.ServiceProvider.GetRequiredService<RunletDbContext>();
 
-                var run = await TryClaimNextRunAsync(dbContext, stoppingToken);
+                var run = await runClaimer.TryClaimNextRunAsync(dbContext, workerId, stoppingToken);
                 if (run is null)
                 {
                     await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
@@ -52,44 +54,6 @@ public sealed class Worker(
         logger.LogInformation("Runlet worker {WorkerId} stopped.", workerId);
     }
 
-    private async Task<WorkflowRun?> TryClaimNextRunAsync(
-        RunletDbContext dbContext,
-        CancellationToken cancellationToken)
-    {
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-
-        var run = await dbContext.WorkflowRuns
-            .FromSqlRaw("""
-                SELECT *
-                FROM workflow_runs
-                WHERE status = 'Pending'
-                ORDER BY created_at
-                FOR UPDATE SKIP LOCKED
-                LIMIT 1
-                """)
-            .SingleOrDefaultAsync(cancellationToken);
-
-        if (run is null)
-        {
-            await transaction.CommitAsync(cancellationToken);
-            return null;
-        }
-
-        var now = DateTimeOffset.UtcNow;
-        run.Status = WorkflowRunStatus.Running;
-        run.StartedAt = now;
-        run.ClaimedAt = now;
-        run.ClaimedByWorkerId = workerId;
-        run.LastHeartbeatAt = now;
-
-        await dbContext.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-
-        logger.LogInformation("Worker {WorkerId} claimed run {RunId}.", workerId, run.Id);
-
-        return run;
-    }
-
     private async Task ExecuteRunAsync(
         RunletDbContext dbContext,
         WorkflowRun run,
@@ -103,7 +67,7 @@ public sealed class Worker(
         var stepExecutor = stepExecutorFactory.GetExecutor(run.ExecutionMode);
 
         using var heartbeatCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var heartbeatTask = SendHeartbeatsAsync(run.Id, heartbeatCancellation.Token);
+        var heartbeatTask = runHeartbeat.SendAsync(run.Id, heartbeatCancellation.Token);
 
         try
         {
@@ -275,27 +239,6 @@ public sealed class Worker(
             {
                 return;
             }
-        }
-    }
-
-    private async Task SendHeartbeatsAsync(
-        Guid workflowRunId,
-        CancellationToken cancellationToken)
-    {
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            using var scope = scopeFactory.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<RunletDbContext>();
-
-            await dbContext.WorkflowRuns
-                .Where(run => run.Id == workflowRunId && run.Status == WorkflowRunStatus.Running)
-                .ExecuteUpdateAsync(
-                    setters => setters.SetProperty(
-                        run => run.LastHeartbeatAt,
-                        DateTimeOffset.UtcNow),
-                    cancellationToken);
-
-            await Task.Delay(HeartbeatInterval, cancellationToken);
         }
     }
 
