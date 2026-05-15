@@ -25,6 +25,7 @@ const els = {
   runsList: document.querySelector("#runsList"),
   runCount: document.querySelector("#runCount"),
   runDetail: document.querySelector("#runDetail"),
+  useTemplateButton: document.querySelector("#useTemplateButton"),
   rerunButton: document.querySelector("#rerunButton"),
   cancelButton: document.querySelector("#cancelButton"),
   failButton: document.querySelector("#failButton"),
@@ -65,6 +66,14 @@ els.rerunButton.addEventListener("click", async () => {
   }
 
   await rerunRun(state.selectedRunId);
+});
+
+els.useTemplateButton.addEventListener("click", () => {
+  if (!state.selectedDetail) {
+    return;
+  }
+
+  fillCreateFormFromRun(state.selectedDetail.run);
 });
 
 els.failButton.addEventListener("click", async () => {
@@ -252,6 +261,7 @@ function renderDetail() {
   const detail = state.selectedDetail;
 
   if (!detail) {
+    els.useTemplateButton.hidden = true;
     els.rerunButton.hidden = true;
     els.cancelButton.hidden = true;
     els.failButton.hidden = true;
@@ -261,6 +271,7 @@ function renderDetail() {
   }
 
   const run = detail.run;
+  els.useTemplateButton.hidden = false;
   els.rerunButton.hidden = !["Succeeded", "Failed", "Cancelled"].includes(run.status);
   els.cancelButton.hidden = !["Pending", "Running"].includes(run.status);
   els.failButton.hidden = !isHeartbeatStale(run);
@@ -294,6 +305,21 @@ function renderDetail() {
     <h2>Logs</h2>
     <div class="logs">${logs || '<div class="log-line muted">No logs yet.</div>'}</div>
   `;
+}
+
+function fillCreateFormFromRun(run) {
+  els.name.value = run.name ? `${run.name} copy` : `${shortId(run.id)} copy`;
+  els.image.value = run.image;
+  els.executionMode.value = run.executionMode;
+  els.timeout.value = run.stepTimeoutSeconds;
+  els.maxRetries.value = run.maxRetries;
+  els.retryDelay.value = run.retryDelaySeconds;
+  els.steps.value = run.steps
+    .map((step) => step.command)
+    .join("\n");
+
+  setMessage(`Loaded ${displayRunName(run)} into the create form.`);
+  els.name.focus();
 }
 
 function renderStep(step) {
