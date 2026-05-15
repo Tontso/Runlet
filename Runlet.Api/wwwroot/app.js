@@ -1,5 +1,9 @@
 const state = {
   runs: [],
+  page: 1,
+  pageSize: 50,
+  totalCount: 0,
+  totalPages: 1,
   statusFilter: "All",
   searchText: "",
   searchTimer: null,
@@ -23,6 +27,7 @@ const els = {
   runSearch: document.querySelector("#runSearchInput"),
   statusFilter: document.querySelector("#statusFilterInput"),
   runsList: document.querySelector("#runsList"),
+  runsPagination: document.querySelector("#runsPagination"),
   runCount: document.querySelector("#runCount"),
   runDetail: document.querySelector("#runDetail"),
   useTemplateButton: document.querySelector("#useTemplateButton"),
@@ -43,11 +48,13 @@ els.refreshButton.addEventListener("click", async () => {
 
 els.statusFilter.addEventListener("change", async () => {
   state.statusFilter = els.statusFilter.value;
+  state.page = 1;
   await refresh();
 });
 
 els.runSearch.addEventListener("input", async () => {
   state.searchText = els.runSearch.value.trim().toLowerCase();
+  state.page = 1;
   window.clearTimeout(state.searchTimer);
   state.searchTimer = window.setTimeout(refresh, 250);
 });
@@ -180,8 +187,12 @@ async function failRun(id) {
 
 async function refresh() {
   try {
-    const runs = await fetchJson(buildRunsUrl());
-    state.runs = runs;
+    const page = await fetchJson(buildRunsUrl());
+    state.runs = page.items;
+    state.page = page.page;
+    state.pageSize = page.pageSize;
+    state.totalCount = page.totalCount;
+    state.totalPages = page.totalPages;
     await applyRunFilters();
   } catch (error) {
     setMessage(error.message || "Refresh failed.");
@@ -209,8 +220,9 @@ async function applyRunFilters() {
 
 function renderRuns() {
   const filteredRuns = getFilteredRuns();
-  els.runCount.textContent = `${filteredRuns.length} shown`;
+  els.runCount.textContent = `${state.totalCount} total`;
   els.runsList.replaceChildren();
+  renderPagination();
 
   if (filteredRuns.length === 0) {
     const empty = document.createElement("div");
@@ -255,6 +267,57 @@ function renderRuns() {
 
 function getFilteredRuns() {
   return state.runs;
+}
+
+async function goToPage(page) {
+  state.page = page;
+  await refresh();
+}
+
+function renderPagination() {
+  els.runsPagination.replaceChildren();
+
+  if (state.totalPages <= 1) {
+    return;
+  }
+
+  const previousButton = createPageButton("Prev", state.page - 1, state.page === 1);
+  els.runsPagination.append(previousButton);
+
+  for (const page of getVisiblePages()) {
+    const pageButton = createPageButton(String(page), page, false);
+    pageButton.classList.toggle("active", page === state.page);
+    els.runsPagination.append(pageButton);
+  }
+
+  const nextButton = createPageButton("Next", state.page + 1, state.page === state.totalPages);
+  els.runsPagination.append(nextButton);
+}
+
+function createPageButton(label, page, disabled) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "page-button";
+  button.textContent = label;
+  button.disabled = disabled;
+  button.addEventListener("click", async () => {
+    await goToPage(page);
+  });
+
+  return button;
+}
+
+function getVisiblePages() {
+  const start = Math.max(1, state.page - 2);
+  const end = Math.min(state.totalPages, start + 4);
+  const adjustedStart = Math.max(1, end - 4);
+  const pages = [];
+
+  for (let page = adjustedStart; page <= end; page++) {
+    pages.push(page);
+  }
+
+  return pages;
 }
 
 function renderDetail() {
@@ -388,6 +451,9 @@ function buildRunsUrl() {
   if (state.searchText) {
     query.set("search", state.searchText);
   }
+
+  query.set("page", state.page);
+  query.set("pageSize", state.pageSize);
 
   const queryString = query.toString();
   return queryString ? `/runs?${queryString}` : "/runs";

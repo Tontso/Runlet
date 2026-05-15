@@ -219,6 +219,28 @@ textarea {
   padding-right: 2px;
 }
 
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.page-button {
+  min-height: 30px;
+  border-color: #cfd6e2;
+  background: #ffffff;
+  color: var(--text);
+  padding: 0 10px;
+}
+
+.page-button:hover,
+.page-button.active {
+  border-color: #1d4ed8;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 .empty-list {
   border: 1px dashed var(--line);
   border-radius: var(--radius);

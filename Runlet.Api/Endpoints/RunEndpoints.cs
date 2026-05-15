@@ -36,9 +36,24 @@ public static class RunEndpoints
         app.MapGet("/runs", async (
             string? status,
             string? search,
+            int? page,
+            int? pageSize,
             RunletDbContext dbContext,
             CancellationToken cancellationToken) =>
         {
+            var requestedPage = page ?? 1;
+            var requestedPageSize = pageSize ?? 50;
+
+            if (requestedPage < 1)
+            {
+                return Results.BadRequest("Page must be 1 or greater.");
+            }
+
+            if (requestedPageSize is < 1 or > 100)
+            {
+                return Results.BadRequest("Page size must be between 1 and 100.");
+            }
+
             var query = dbContext.WorkflowRuns.AsNoTracking();
 
             if (!string.IsNullOrWhiteSpace(status) && !string.Equals(status, "All", StringComparison.OrdinalIgnoreCase))
@@ -60,9 +75,14 @@ public static class RunEndpoints
                     || workflowRun.Id.ToString().Contains(searchText));
             }
 
+            var totalCount = await query.CountAsync(cancellationToken);
+            var totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)requestedPageSize));
+            var safePage = Math.Min(requestedPage, totalPages);
+
             var runs = await query
                 .OrderByDescending(workflowRun => workflowRun.CreatedAt)
-                .Take(50)
+                .Skip((safePage - 1) * requestedPageSize)
+                .Take(requestedPageSize)
                 .Select(workflowRun => new WorkflowRunSummaryResponse(
                     workflowRun.Id,
                     workflowRun.Name,
@@ -84,7 +104,12 @@ public static class RunEndpoints
                     workflowRun.Steps.Count(step => step.Status == WorkflowStepStatus.Cancelled)))
                 .ToListAsync(cancellationToken);
 
-            return Results.Ok(runs);
+            return Results.Ok(new PagedWorkflowRunsResponse(
+                runs,
+                safePage,
+                requestedPageSize,
+                totalCount,
+                totalPages));
         })
         .WithName("ListWorkflowRuns");
 
