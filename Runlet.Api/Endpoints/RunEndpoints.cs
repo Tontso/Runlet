@@ -266,6 +266,51 @@ public static class RunEndpoints
         })
         .WithName("FailWorkflowRun");
 
+        app.MapPost("/runs/{id:guid}/rerun", async (
+            Guid id,
+            RunletDbContext dbContext,
+            CancellationToken cancellationToken) =>
+        {
+            var sourceRun = await dbContext.WorkflowRuns
+                .AsNoTracking()
+                .Include(workflowRun => workflowRun.Steps)
+                .SingleOrDefaultAsync(workflowRun => workflowRun.Id == id, cancellationToken);
+
+            if (sourceRun is null)
+            {
+                return Results.NotFound();
+            }
+
+            if (sourceRun.Status is WorkflowRunStatus.Pending or WorkflowRunStatus.Running)
+            {
+                return Results.Conflict($"Run is {sourceRun.Status}; only completed runs can be rerun.");
+            }
+
+            var runId = Guid.NewGuid();
+            var run = new WorkflowRun
+            {
+                Id = runId,
+                Image = sourceRun.Image,
+                ExecutionMode = sourceRun.ExecutionMode,
+                StepTimeoutSeconds = sourceRun.StepTimeoutSeconds,
+                Steps = sourceRun.Steps
+                    .OrderBy(step => step.Order)
+                    .Select((step, index) => new WorkflowStep
+                    {
+                        WorkflowRunId = runId,
+                        Order = index + 1,
+                        Command = step.Command
+                    })
+                    .ToList()
+            };
+
+            dbContext.WorkflowRuns.Add(run);
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            return Results.Created($"/runs/{run.Id}", run);
+        })
+        .WithName("RerunWorkflowRun");
+
         app.MapGet("/runs/{id:guid}/logs", async (
             Guid id,
             RunletDbContext dbContext,

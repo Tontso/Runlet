@@ -17,6 +17,7 @@ const els = {
   runsList: document.querySelector("#runsList"),
   runCount: document.querySelector("#runCount"),
   runDetail: document.querySelector("#runDetail"),
+  rerunButton: document.querySelector("#rerunButton"),
   cancelButton: document.querySelector("#cancelButton"),
   failButton: document.querySelector("#failButton"),
   refreshButton: document.querySelector("#refreshButton")
@@ -37,6 +38,14 @@ els.cancelButton.addEventListener("click", async () => {
   }
 
   await cancelRun(state.selectedRunId);
+});
+
+els.rerunButton.addEventListener("click", async () => {
+  if (!state.selectedRunId) {
+    return;
+  }
+
+  await rerunRun(state.selectedRunId);
 });
 
 els.failButton.addEventListener("click", async () => {
@@ -99,6 +108,25 @@ async function cancelRun(id) {
     await refresh();
   } catch (error) {
     setMessage(error.message || "Could not cancel run.");
+  }
+}
+
+async function rerunRun(id) {
+  setMessage(`Rerunning ${shortId(id)}...`);
+
+  try {
+    const response = await fetch(`/runs/${id}/rerun`, { method: "POST" });
+
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+
+    const run = await response.json();
+    state.selectedRunId = run.id;
+    setMessage(`Created rerun ${shortId(run.id)}.`);
+    await refresh();
+  } catch (error) {
+    setMessage(error.message || "Could not rerun workflow.");
   }
 }
 
@@ -182,6 +210,7 @@ function renderDetail() {
   const detail = state.selectedDetail;
 
   if (!detail) {
+    els.rerunButton.hidden = true;
     els.cancelButton.hidden = true;
     els.failButton.hidden = true;
     els.runDetail.className = "detail-empty";
@@ -190,6 +219,7 @@ function renderDetail() {
   }
 
   const run = detail.run;
+  els.rerunButton.hidden = !["Succeeded", "Failed", "Cancelled"].includes(run.status);
   els.cancelButton.hidden = !["Pending", "Running"].includes(run.status);
   els.failButton.hidden = !isHeartbeatStale(run);
   els.runDetail.className = "";
