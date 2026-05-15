@@ -1,14 +1,15 @@
 using Microsoft.EntityFrameworkCore;
 using Runlet.Persistence;
-using Runlet.Shared.Executions;
 using Runlet.Shared.Workflows;
 using Runlet.Worker.Execution;
+using Runlet.Worker.Logging;
 
 namespace Runlet.Worker;
 
 public sealed class Worker(
     IServiceScopeFactory scopeFactory,
     IWorkflowStepExecutorFactory stepExecutorFactory,
+    WorkflowLogWriter logWriter,
     ILogger<Worker> logger) : BackgroundService
 {
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(5);
@@ -116,7 +117,12 @@ public sealed class Worker(
                 step.StartedAt = DateTimeOffset.UtcNow;
                 await dbContext.SaveChangesAsync(cancellationToken);
 
-                await AddLogAsync(dbContext, run.Id, step.Id, $"Starting step {step.Order}: {step.Command}", cancellationToken);
+                await logWriter.WriteSystemAsync(
+                    dbContext,
+                    run.Id,
+                    step.Id,
+                    $"Starting step {step.Order}: {step.Command}",
+                    cancellationToken);
 
                 StepExecutionResult result;
                 using (var stepCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
@@ -127,7 +133,7 @@ public sealed class Worker(
                         step.Command,
                         async (line, outputCancellationToken) =>
                         {
-                            await AddLogAsync(
+                            await logWriter.WriteAsync(
                                 dbContext,
                                 run.Id,
                                 step.Id,
@@ -151,7 +157,7 @@ public sealed class Worker(
                             step.CompletedAt = DateTimeOffset.UtcNow;
                             step.Status = WorkflowStepStatus.Cancelled;
 
-                            await AddLogAsync(
+                            await logWriter.WriteSystemAsync(
                                 dbContext,
                                 run.Id,
                                 step.Id,
@@ -173,7 +179,7 @@ public sealed class Worker(
                         step.CompletedAt = DateTimeOffset.UtcNow;
                         step.Status = WorkflowStepStatus.Failed;
 
-                        await AddLogAsync(
+                        await logWriter.WriteSystemAsync(
                             dbContext,
                             run.Id,
                             step.Id,
@@ -195,7 +201,7 @@ public sealed class Worker(
                         step.CompletedAt = DateTimeOffset.UtcNow;
                         step.Status = WorkflowStepStatus.Cancelled;
 
-                        await AddLogAsync(
+                        await logWriter.WriteSystemAsync(
                             dbContext,
                             run.Id,
                             step.Id,
@@ -232,7 +238,12 @@ public sealed class Worker(
             run.Status = WorkflowRunStatus.Succeeded;
             run.CompletedAt = DateTimeOffset.UtcNow;
 
-            await AddLogAsync(dbContext, run.Id, workflowStepId: null, "Run completed successfully.", cancellationToken);
+            await logWriter.WriteSystemAsync(
+                dbContext,
+                run.Id,
+                workflowStepId: null,
+                "Run completed successfully.",
+                cancellationToken);
             await dbContext.SaveChangesAsync(cancellationToken);
 
             logger.LogInformation("Run {RunId} succeeded.", run.Id);
@@ -322,7 +333,12 @@ public sealed class Worker(
         run.Status = WorkflowRunStatus.Cancelled;
         run.CompletedAt = DateTimeOffset.UtcNow;
 
-        await AddLogAsync(dbContext, run.Id, workflowStepId: null, "Run cancelled.", cancellationToken);
+        await logWriter.WriteSystemAsync(
+            dbContext,
+            run.Id,
+            workflowStepId: null,
+            "Run cancelled.",
+            cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation("Run {RunId} cancelled.", run.Id);
@@ -343,7 +359,7 @@ public sealed class Worker(
         run.Status = WorkflowRunStatus.Failed;
         run.CompletedAt = DateTimeOffset.UtcNow;
 
-        await AddLogAsync(
+        await logWriter.WriteSystemAsync(
             dbContext,
             run.Id,
             failedStep.Id,
@@ -352,45 +368,15 @@ public sealed class Worker(
                 : $"Step {failedStep.Order} failed with exit code {failedStep.ExitCode}.",
             cancellationToken);
 
-        await AddLogAsync(dbContext, run.Id, workflowStepId: null, "Run failed.", cancellationToken);
+        await logWriter.WriteSystemAsync(
+            dbContext,
+            run.Id,
+            workflowStepId: null,
+            "Run failed.",
+            cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
 
         logger.LogWarning("Run {RunId} failed.", run.Id);
-    }
-
-    private static async Task AddLogAsync(
-        RunletDbContext dbContext,
-        Guid workflowRunId,
-        Guid? workflowStepId,
-        string message,
-        CancellationToken cancellationToken)
-    {
-        await AddLogAsync(
-            dbContext,
-            workflowRunId,
-            workflowStepId,
-            WorkflowLogKind.System,
-            message,
-            cancellationToken);
-    }
-
-    private static async Task AddLogAsync(
-        RunletDbContext dbContext,
-        Guid workflowRunId,
-        Guid? workflowStepId,
-        WorkflowLogKind kind,
-        string message,
-        CancellationToken cancellationToken)
-    {
-        dbContext.WorkflowLogEntries.Add(new WorkflowLogEntry
-        {
-            WorkflowRunId = workflowRunId,
-            WorkflowStepId = workflowStepId,
-            Kind = kind,
-            Message = message
-        });
-
-        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
 }
