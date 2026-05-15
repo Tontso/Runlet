@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Runlet.Persistence;
 using Runlet.Shared.Workflows;
 using Runlet.Worker.Execution;
+using Runlet.Worker.Lifecycle;
 using Runlet.Worker.Logging;
 
 namespace Runlet.Worker;
@@ -9,6 +10,7 @@ namespace Runlet.Worker;
 public sealed class Worker(
     IServiceScopeFactory scopeFactory,
     IWorkflowStepExecutorFactory stepExecutorFactory,
+    WorkflowRunFinalizer runFinalizer,
     WorkflowLogWriter logWriter,
     ILogger<Worker> logger) : BackgroundService
 {
@@ -109,7 +111,7 @@ public sealed class Worker(
             {
                 if (await IsCancellationRequestedAsync(dbContext, run, cancellationToken))
                 {
-                    await CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
+                    await runFinalizer.CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
                     return;
                 }
 
@@ -165,7 +167,7 @@ public sealed class Worker(
                                 cancellationToken);
 
                             await dbContext.SaveChangesAsync(cancellationToken);
-                            await CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
+                            await runFinalizer.CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
                             return;
                         }
                     }
@@ -187,7 +189,7 @@ public sealed class Worker(
                             cancellationToken);
 
                         await dbContext.SaveChangesAsync(cancellationToken);
-                        await FailRunAsync(dbContext, run, step, orderedSteps, cancellationToken);
+                        await runFinalizer.FailRunAsync(dbContext, run, step, orderedSteps, cancellationToken);
                         return;
                     }
 
@@ -209,7 +211,7 @@ public sealed class Worker(
                             cancellationToken);
 
                         await dbContext.SaveChangesAsync(cancellationToken);
-                        await CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
+                        await runFinalizer.CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
                         return;
                     }
                 }
@@ -224,29 +226,18 @@ public sealed class Worker(
 
                 if (step.Status == WorkflowStepStatus.Failed)
                 {
-                    await FailRunAsync(dbContext, run, step, orderedSteps, cancellationToken);
+                    await runFinalizer.FailRunAsync(dbContext, run, step, orderedSteps, cancellationToken);
                     return;
                 }
             }
 
             if (await IsCancellationRequestedAsync(dbContext, run, cancellationToken))
             {
-                await CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
+                await runFinalizer.CancelRunAsync(dbContext, run, orderedSteps, cancellationToken);
                 return;
             }
 
-            run.Status = WorkflowRunStatus.Succeeded;
-            run.CompletedAt = DateTimeOffset.UtcNow;
-
-            await logWriter.WriteSystemAsync(
-                dbContext,
-                run.Id,
-                workflowStepId: null,
-                "Run completed successfully.",
-                cancellationToken);
-            await dbContext.SaveChangesAsync(cancellationToken);
-
-            logger.LogInformation("Run {RunId} succeeded.", run.Id);
+            await runFinalizer.SucceedRunAsync(dbContext, run, cancellationToken);
         }
         finally
         {
@@ -317,66 +308,6 @@ public sealed class Worker(
         catch (OperationCanceledException)
         {
         }
-    }
-
-    private async Task CancelRunAsync(
-        RunletDbContext dbContext,
-        WorkflowRun run,
-        IReadOnlyCollection<WorkflowStep> steps,
-        CancellationToken cancellationToken)
-    {
-        foreach (var step in steps.Where(step => step.Status == WorkflowStepStatus.Pending))
-        {
-            step.Status = WorkflowStepStatus.Skipped;
-        }
-
-        run.Status = WorkflowRunStatus.Cancelled;
-        run.CompletedAt = DateTimeOffset.UtcNow;
-
-        await logWriter.WriteSystemAsync(
-            dbContext,
-            run.Id,
-            workflowStepId: null,
-            "Run cancelled.",
-            cancellationToken);
-        await dbContext.SaveChangesAsync(cancellationToken);
-
-        logger.LogInformation("Run {RunId} cancelled.", run.Id);
-    }
-
-    private async Task FailRunAsync(
-        RunletDbContext dbContext,
-        WorkflowRun run,
-        WorkflowStep failedStep,
-        IReadOnlyCollection<WorkflowStep> steps,
-        CancellationToken cancellationToken)
-    {
-        foreach (var step in steps.Where(step => step.Status == WorkflowStepStatus.Pending))
-        {
-            step.Status = WorkflowStepStatus.Skipped;
-        }
-
-        run.Status = WorkflowRunStatus.Failed;
-        run.CompletedAt = DateTimeOffset.UtcNow;
-
-        await logWriter.WriteSystemAsync(
-            dbContext,
-            run.Id,
-            failedStep.Id,
-            failedStep.ExitCode is null
-                ? $"Step {failedStep.Order} failed without an exit code."
-                : $"Step {failedStep.Order} failed with exit code {failedStep.ExitCode}.",
-            cancellationToken);
-
-        await logWriter.WriteSystemAsync(
-            dbContext,
-            run.Id,
-            workflowStepId: null,
-            "Run failed.",
-            cancellationToken);
-        await dbContext.SaveChangesAsync(cancellationToken);
-
-        logger.LogWarning("Run {RunId} failed.", run.Id);
     }
 
 }
