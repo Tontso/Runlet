@@ -1,5 +1,6 @@
 const state = {
   runs: [],
+  statusFilter: "All",
   selectedRunId: null,
   selectedDetail: null,
   refreshTimer: null
@@ -14,6 +15,7 @@ const els = {
   timeout: document.querySelector("#timeoutInput"),
   steps: document.querySelector("#stepsInput"),
   message: document.querySelector("#message"),
+  statusFilter: document.querySelector("#statusFilterInput"),
   runsList: document.querySelector("#runsList"),
   runCount: document.querySelector("#runCount"),
   runDetail: document.querySelector("#runDetail"),
@@ -29,6 +31,12 @@ els.form.addEventListener("submit", async (event) => {
 });
 
 els.refreshButton.addEventListener("click", async () => {
+  await refresh();
+});
+
+els.statusFilter.addEventListener("change", async () => {
+  state.statusFilter = els.statusFilter.value;
+  state.selectedRunId = getFilteredRuns()[0]?.id ?? null;
   await refresh();
 });
 
@@ -152,8 +160,11 @@ async function refresh() {
     const runs = await fetchJson("/runs");
     state.runs = runs;
 
-    if (!state.selectedRunId && runs.length > 0) {
-      state.selectedRunId = runs[0].id;
+    const filteredRuns = getFilteredRuns();
+    const selectedRunStillVisible = filteredRuns.some((run) => run.id === state.selectedRunId);
+
+    if (!selectedRunStillVisible) {
+      state.selectedRunId = filteredRuns[0]?.id ?? null;
     }
 
     renderRuns();
@@ -171,10 +182,21 @@ async function refresh() {
 }
 
 function renderRuns() {
-  els.runCount.textContent = `${state.runs.length} shown`;
+  const filteredRuns = getFilteredRuns();
+  els.runCount.textContent = state.statusFilter === "All"
+    ? `${filteredRuns.length} shown`
+    : `${filteredRuns.length}/${state.runs.length} shown`;
   els.runsList.replaceChildren();
 
-  for (const run of state.runs) {
+  if (filteredRuns.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-list";
+    empty.textContent = "No runs match this filter.";
+    els.runsList.append(empty);
+    return;
+  }
+
+  for (const run of filteredRuns) {
     const item = document.createElement("button");
     item.type = "button";
     item.className = `run-item${run.id === state.selectedRunId ? " selected" : ""}`;
@@ -204,6 +226,14 @@ function renderRuns() {
 
     els.runsList.append(item);
   }
+}
+
+function getFilteredRuns() {
+  if (state.statusFilter === "All") {
+    return state.runs;
+  }
+
+  return state.runs.filter((run) => run.status === state.statusFilter);
 }
 
 function renderDetail() {

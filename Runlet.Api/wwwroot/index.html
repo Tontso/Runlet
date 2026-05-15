@@ -54,7 +54,17 @@ echo done</textarea>
     <section class="panel runs-panel" aria-labelledby="runs-title">
       <div class="section-heading">
         <h2 id="runs-title">Runs</h2>
-        <span id="runCount" class="muted"></span>
+        <div class="runs-tools">
+          <select id="statusFilterInput" aria-label="Filter runs by status">
+            <option value="All">All</option>
+            <option value="Pending">Pending</option>
+            <option value="Running">Running</option>
+            <option value="Succeeded">Succeeded</option>
+            <option value="Failed">Failed</option>
+            <option value="Cancelled">Cancelled</option>
+          </select>
+          <span id="runCount" class="muted"></span>
+        </div>
       </div>
       <div id="runsList" class="runs-list"></div>
     </section>
