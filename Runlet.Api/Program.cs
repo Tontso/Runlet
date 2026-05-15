@@ -227,6 +227,58 @@ app.MapPost("/runs/{id:guid}/cancel", async (
 })
 .WithName("CancelWorkflowRun");
 
+app.MapPost("/runs/{id:guid}/fail", async (
+    Guid id,
+    RunletDbContext dbContext,
+    CancellationToken cancellationToken) =>
+{
+    var run = await dbContext.WorkflowRuns
+        .Include(workflowRun => workflowRun.Steps)
+        .SingleOrDefaultAsync(workflowRun => workflowRun.Id == id, cancellationToken);
+
+    if (run is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (run.Status != WorkflowRunStatus.Running)
+    {
+        return Results.Conflict($"Run is {run.Status}; only running runs can be manually failed.");
+    }
+
+    var now = DateTimeOffset.UtcNow;
+    run.Status = WorkflowRunStatus.Failed;
+    run.CompletedAt = now;
+
+    foreach (var step in run.Steps.Where(step => step.Status == WorkflowStepStatus.Running))
+    {
+        step.Status = WorkflowStepStatus.Failed;
+        step.CompletedAt ??= now;
+    }
+
+    foreach (var step in run.Steps.Where(step => step.Status == WorkflowStepStatus.Pending))
+    {
+        step.Status = WorkflowStepStatus.Skipped;
+    }
+
+    dbContext.WorkflowLogEntries.Add(new WorkflowLogEntry
+    {
+        WorkflowRunId = run.Id,
+        Kind = WorkflowLogKind.System,
+        Message = "Run manually marked failed."
+    });
+
+    await dbContext.SaveChangesAsync(cancellationToken);
+
+    return Results.Accepted($"/runs/{run.Id}", new
+    {
+        run.Id,
+        run.Status,
+        run.CompletedAt
+    });
+})
+.WithName("FailWorkflowRun");
+
 app.MapGet("/runs/{id:guid}/logs", async (
     Guid id,
     RunletDbContext dbContext,
