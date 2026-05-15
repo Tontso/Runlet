@@ -2,6 +2,7 @@ const state = {
   runs: [],
   statusFilter: "All",
   searchText: "",
+  searchTimer: null,
   selectedRunId: null,
   selectedDetail: null,
   refreshTimer: null
@@ -39,12 +40,13 @@ els.refreshButton.addEventListener("click", async () => {
 
 els.statusFilter.addEventListener("change", async () => {
   state.statusFilter = els.statusFilter.value;
-  await applyRunFilters();
+  await refresh();
 });
 
 els.runSearch.addEventListener("input", async () => {
   state.searchText = els.runSearch.value.trim().toLowerCase();
-  await applyRunFilters();
+  window.clearTimeout(state.searchTimer);
+  state.searchTimer = window.setTimeout(refresh, 250);
 });
 
 els.cancelButton.addEventListener("click", async () => {
@@ -165,7 +167,7 @@ async function failRun(id) {
 
 async function refresh() {
   try {
-    const runs = await fetchJson("/runs");
+    const runs = await fetchJson(buildRunsUrl());
     state.runs = runs;
     await applyRunFilters();
   } catch (error) {
@@ -194,10 +196,7 @@ async function applyRunFilters() {
 
 function renderRuns() {
   const filteredRuns = getFilteredRuns();
-  const hasActiveFilter = state.statusFilter !== "All" || state.searchText;
-  els.runCount.textContent = !hasActiveFilter
-    ? `${filteredRuns.length} shown`
-    : `${filteredRuns.length}/${state.runs.length} shown`;
+  els.runCount.textContent = `${filteredRuns.length} shown`;
   els.runsList.replaceChildren();
 
   if (filteredRuns.length === 0) {
@@ -242,16 +241,7 @@ function renderRuns() {
 }
 
 function getFilteredRuns() {
-  const searchText = state.searchText;
-
-  return state.runs.filter((run) => {
-    const statusMatches = state.statusFilter === "All" || run.status === state.statusFilter;
-    const searchMatches = !searchText
-      || displayRunName(run).toLowerCase().includes(searchText)
-      || run.id.toLowerCase().includes(searchText);
-
-    return statusMatches && searchMatches;
-  });
+  return state.runs;
 }
 
 function renderDetail() {
@@ -353,6 +343,21 @@ async function fetchJson(url) {
   }
 
   return response.json();
+}
+
+function buildRunsUrl() {
+  const query = new URLSearchParams();
+
+  if (state.statusFilter !== "All") {
+    query.set("status", state.statusFilter);
+  }
+
+  if (state.searchText) {
+    query.set("search", state.searchText);
+  }
+
+  const queryString = query.toString();
+  return queryString ? `/runs?${queryString}` : "/runs";
 }
 
 function setMessage(message) {

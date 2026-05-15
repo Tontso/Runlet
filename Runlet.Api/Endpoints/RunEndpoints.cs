@@ -67,11 +67,33 @@ public static class RunEndpoints
         .WithName("CreateWorkflowRun");
 
         app.MapGet("/runs", async (
+            string? status,
+            string? search,
             RunletDbContext dbContext,
             CancellationToken cancellationToken) =>
         {
-            var runs = await dbContext.WorkflowRuns
-                .AsNoTracking()
+            var query = dbContext.WorkflowRuns.AsNoTracking();
+
+            if (!string.IsNullOrWhiteSpace(status) && !string.Equals(status, "All", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!Enum.TryParse<WorkflowRunStatus>(status, ignoreCase: true, out var workflowRunStatus))
+                {
+                    return Results.BadRequest("Unknown run status filter.");
+                }
+
+                query = query.Where(workflowRun => workflowRun.Status == workflowRunStatus);
+            }
+
+            var searchText = search?.Trim();
+            if (!string.IsNullOrWhiteSpace(searchText))
+            {
+                var searchPattern = $"%{searchText}%";
+                query = query.Where(workflowRun =>
+                    EF.Functions.ILike(workflowRun.Name ?? string.Empty, searchPattern)
+                    || workflowRun.Id.ToString().Contains(searchText));
+            }
+
+            var runs = await query
                 .OrderByDescending(workflowRun => workflowRun.CreatedAt)
                 .Take(50)
                 .Select(workflowRun => new
