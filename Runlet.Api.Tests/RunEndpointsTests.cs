@@ -159,6 +159,34 @@ public sealed class RunEndpointsTests(RunletApiFactory factory) :
             rerun.Steps.OrderBy(step => step.Order).Select(step => step.Command));
     }
 
+    [Fact]
+    public async Task ListWorkers_ReturnsActiveWorkersGroupedByClaimedRunningRuns()
+    {
+        var client = factory.CreateClient();
+
+        await AddClaimedRunAsync("worker-a", "run-a1", DateTimeOffset.UtcNow.AddSeconds(-4));
+        await AddClaimedRunAsync("worker-a", "run-a2", DateTimeOffset.UtcNow.AddSeconds(-1));
+        await AddClaimedRunAsync("worker-b", "run-b1", DateTimeOffset.UtcNow.AddSeconds(-8));
+        await AddClaimedRunAsync("worker-c", "completed", DateTimeOffset.UtcNow, WorkflowRunStatus.Succeeded);
+
+        var response = await client.GetAsync("/workers");
+
+        response.EnsureSuccessStatusCode();
+
+        var workers = await response.Content.ReadFromJsonAsync<IReadOnlyList<WorkerSummaryResponse>>(JsonOptions);
+        Assert.NotNull(workers);
+        Assert.Equal(2, workers.Count);
+
+        var workerA = Assert.Single(workers, worker => worker.WorkerId == "worker-a");
+        Assert.Equal(2, workerA.ActiveRunCount);
+        Assert.Equal(["run-a1", "run-a2"], workerA.Runs.Select(run => run.Name).Order());
+        Assert.NotNull(workerA.LastHeartbeatAt);
+
+        var workerB = Assert.Single(workers, worker => worker.WorkerId == "worker-b");
+        Assert.Equal(1, workerB.ActiveRunCount);
+        Assert.Equal("run-b1", Assert.Single(workerB.Runs).Name);
+    }
+
     private static async Task<WorkflowRun> CreateRunAsync(HttpClient client, string name)
     {
         var response = await client.PostAsJsonAsync(
@@ -239,5 +267,39 @@ public sealed class RunEndpointsTests(RunletApiFactory factory) :
         await dbContext.SaveChangesAsync();
 
         return run;
+    }
+
+    private async Task AddClaimedRunAsync(
+        string workerId,
+        string name,
+        DateTimeOffset lastHeartbeatAt,
+        WorkflowRunStatus status = WorkflowRunStatus.Running)
+    {
+        using var scope = factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<RunletDbContext>();
+
+        dbContext.WorkflowRuns.Add(new WorkflowRun
+        {
+            Name = name,
+            Image = "alpine:latest",
+            Status = status,
+            StartedAt = DateTimeOffset.UtcNow.AddSeconds(-10),
+            ClaimedAt = DateTimeOffset.UtcNow.AddSeconds(-10),
+            ClaimedByWorkerId = workerId,
+            LastHeartbeatAt = lastHeartbeatAt,
+            Steps =
+            [
+                new WorkflowStep
+                {
+                    Order = 1,
+                    Command = "sleep 30",
+                    Status = status == WorkflowRunStatus.Running
+                        ? WorkflowStepStatus.Running
+                        : WorkflowStepStatus.Succeeded
+                }
+            ]
+        });
+
+        await dbContext.SaveChangesAsync();
     }
 }

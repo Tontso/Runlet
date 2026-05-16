@@ -304,6 +304,31 @@ public static class RunEndpoints
         })
         .WithName("GetWorkflowRunLogs");
 
+        app.MapGet("/workers", async (
+            RunletDbContext dbContext,
+            CancellationToken cancellationToken) =>
+        {
+            var runningRuns = await dbContext.WorkflowRuns
+                .AsNoTracking()
+                .Where(run => run.Status == WorkflowRunStatus.Running && run.ClaimedByWorkerId != null)
+                .OrderBy(run => run.StartedAt)
+                .ToListAsync(cancellationToken);
+
+            var workers = runningRuns
+                .GroupBy(run => run.ClaimedByWorkerId!)
+                .Select(group => new WorkerSummaryResponse(
+                    group.Key,
+                    group.Count(),
+                    group.Max(run => run.LastHeartbeatAt),
+                    group.Select(ToWorkerRunResponse).ToList()))
+                .OrderByDescending(worker => worker.ActiveRunCount)
+                .ThenBy(worker => worker.WorkerId)
+                .ToList();
+
+            return Results.Ok(workers);
+        })
+        .WithName("ListWorkers");
+
         return app;
     }
 
@@ -427,5 +452,16 @@ public static class RunEndpoints
             log.CreatedAt,
             log.Kind,
             log.Message);
+    }
+
+    private static WorkerRunResponse ToWorkerRunResponse(WorkflowRun run)
+    {
+        return new WorkerRunResponse(
+            run.Id,
+            run.Name,
+            run.Image,
+            run.Status,
+            run.StartedAt,
+            run.LastHeartbeatAt);
     }
 }

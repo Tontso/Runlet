@@ -1,5 +1,6 @@
 const state = {
   runs: [],
+  workers: [],
   page: 1,
   pageSize: 50,
   totalCount: 0,
@@ -29,6 +30,8 @@ const els = {
   runsList: document.querySelector("#runsList"),
   runsPagination: document.querySelector("#runsPagination"),
   runCount: document.querySelector("#runCount"),
+  workersList: document.querySelector("#workersList"),
+  workerCount: document.querySelector("#workerCount"),
   runDetail: document.querySelector("#runDetail"),
   useTemplateButton: document.querySelector("#useTemplateButton"),
   rerunButton: document.querySelector("#rerunButton"),
@@ -187,15 +190,55 @@ async function failRun(id) {
 
 async function refresh() {
   try {
-    const page = await fetchJson(buildRunsUrl());
+    const [page, workers] = await Promise.all([
+      fetchJson(buildRunsUrl()),
+      fetchJson("/workers")
+    ]);
+
     state.runs = page.items;
+    state.workers = workers;
     state.page = page.page;
     state.pageSize = page.pageSize;
     state.totalCount = page.totalCount;
     state.totalPages = page.totalPages;
+    renderWorkers();
     await applyRunFilters();
   } catch (error) {
     setMessage(error.message || "Refresh failed.");
+  }
+}
+
+function renderWorkers() {
+  els.workerCount.textContent = `${state.workers.length} active`;
+  els.workersList.replaceChildren();
+
+  if (state.workers.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-list";
+    empty.textContent = "No active workers.";
+    els.workersList.append(empty);
+    return;
+  }
+
+  for (const worker of state.workers) {
+    const item = document.createElement("div");
+    item.className = "worker-item";
+    item.innerHTML = `
+      <div class="worker-head">
+        <strong>${escapeHtml(shortWorkerId(worker.workerId))}</strong>
+        <span class="badges">${workerBadge(worker)}</span>
+      </div>
+      <div class="muted worker-id-full">${escapeHtml(worker.workerId)}</div>
+      <div class="meta-row">
+        <span>${worker.activeRunCount} active ${worker.activeRunCount === 1 ? "run" : "runs"}</span>
+        <span class="muted">Heartbeat ${formatWorkerHeartbeat(worker)}</span>
+      </div>
+      <div class="worker-runs">
+        ${worker.runs.map(renderWorkerRun).join("")}
+      </div>
+    `;
+
+    els.workersList.append(item);
   }
 }
 
@@ -425,10 +468,35 @@ function renderLog(log) {
   `;
 }
 
+function renderWorkerRun(run) {
+  return `
+    <button type="button" class="worker-run" data-run-id="${escapeHtml(run.id)}">
+      <span>${escapeHtml(displayRunName(run))}</span>
+      <span class="muted">${escapeHtml(shortId(run.id))}</span>
+    </button>
+  `;
+}
+
+els.workersList.addEventListener("click", async (event) => {
+  const runButton = event.target.closest(".worker-run");
+  if (!runButton) {
+    return;
+  }
+
+  state.selectedRunId = runButton.dataset.runId;
+  await refresh();
+});
+
 function staleBadge(run) {
   return isHeartbeatStale(run)
     ? '<span class="status Stale">Stale</span>'
     : "";
+}
+
+function workerBadge(worker) {
+  return isWorkerStale(worker)
+    ? '<span class="status Stale">Stale</span>'
+    : '<span class="status Running">Active</span>';
 }
 
 async function fetchJson(url) {
@@ -518,12 +586,34 @@ function formatHeartbeat(run) {
   return isHeartbeatStale(run) ? `${heartbeat} stale` : heartbeat;
 }
 
+function formatWorkerHeartbeat(worker) {
+  if (!worker.lastHeartbeatAt) {
+    return "missing";
+  }
+
+  const heartbeat = formatRelative(worker.lastHeartbeatAt);
+  return isWorkerStale(worker) ? `${heartbeat} stale` : heartbeat;
+}
+
 function isHeartbeatStale(run) {
   if (run.status !== "Running" || !run.lastHeartbeatAt) {
     return false;
   }
 
   return secondsSince(run.lastHeartbeatAt) > staleHeartbeatSeconds;
+}
+
+function isWorkerStale(worker) {
+  if (!worker.lastHeartbeatAt) {
+    return true;
+  }
+
+  return secondsSince(worker.lastHeartbeatAt) > staleHeartbeatSeconds;
+}
+
+function shortWorkerId(workerId) {
+  const parts = workerId.split("-");
+  return parts.length > 1 ? parts.slice(0, -1).join("-") : workerId;
 }
 
 function secondsSince(value) {
