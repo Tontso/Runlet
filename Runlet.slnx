@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="Runlet.Api/Runlet.Api.csproj" />
+  <Project Path="Runlet.Api.Tests/Runlet.Api.Tests.csproj" />
   <Project Path="Runlet.Persistence/Runlet.Persistence.csproj" />
   <Project Path="Runlet.Shared/Runlet.Shared.csproj" />
   <Project Path="Runlet.Worker/Runlet.Worker.csproj" />

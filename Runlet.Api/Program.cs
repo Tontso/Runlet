@@ -23,3 +23,5 @@ app.UseStaticFiles();
 app.MapRunEndpoints();
 
 await app.RunAsync();
+
+public partial class Program;
