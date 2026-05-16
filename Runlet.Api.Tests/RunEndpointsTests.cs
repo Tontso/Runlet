@@ -199,6 +199,46 @@ public sealed class RunEndpointsTests(RunletApiFactory factory) :
         Assert.Empty(workerC.Runs);
     }
 
+    [Fact]
+    public async Task GetStats_ReturnsQueueCountsAndCapacity()
+    {
+        var client = factory.CreateClient();
+
+        await AddWorkerRegistrationAsync("worker-a", "machine-a", 2, DateTimeOffset.UtcNow.AddSeconds(-4));
+        await AddWorkerRegistrationAsync("worker-b", "machine-b", 3, DateTimeOffset.UtcNow.AddSeconds(-2));
+        await AddWorkerRegistrationAsync(
+            "worker-offline",
+            "offline",
+            5,
+            DateTimeOffset.UtcNow.AddMinutes(-2),
+            stoppedAt: DateTimeOffset.UtcNow.AddMinutes(-1));
+        await AddClaimedRunAsync("worker-a", "running-1", DateTimeOffset.UtcNow.AddSeconds(-4));
+        await AddClaimedRunAsync("worker-b", "running-2", DateTimeOffset.UtcNow.AddSeconds(-2));
+        await AddRunWithStatusAsync("pending", WorkflowRunStatus.Pending);
+        await AddRunWithStatusAsync("succeeded", WorkflowRunStatus.Succeeded);
+        await AddRunWithStatusAsync("failed", WorkflowRunStatus.Failed);
+        await AddRunWithStatusAsync("cancelled", WorkflowRunStatus.Cancelled);
+
+        var response = await client.GetAsync("/stats");
+
+        response.EnsureSuccessStatusCode();
+
+        var stats = await response.Content.ReadFromJsonAsync<RunletStatsResponse>(JsonOptions);
+        Assert.NotNull(stats);
+        Assert.Equal(1, stats.Queue.Pending);
+        Assert.Equal(2, stats.Queue.Running);
+        Assert.Equal(1, stats.Queue.Succeeded);
+        Assert.Equal(1, stats.Queue.Failed);
+        Assert.Equal(1, stats.Queue.Cancelled);
+        Assert.Equal(6, stats.Queue.Total);
+        Assert.Equal(3, stats.Capacity.WorkerCount);
+        Assert.Equal(2, stats.Capacity.RunningWorkerCount);
+        Assert.Equal(1, stats.Capacity.OfflineWorkerCount);
+        Assert.Equal(2, stats.Capacity.UsedSlots);
+        Assert.Equal(5, stats.Capacity.TotalSlots);
+        Assert.Equal(3, stats.Capacity.FreeSlots);
+    }
+
     private static async Task<WorkflowRun> CreateRunAsync(HttpClient client, string name)
     {
         var response = await client.PostAsJsonAsync(
@@ -315,11 +355,47 @@ public sealed class RunEndpointsTests(RunletApiFactory factory) :
         await dbContext.SaveChangesAsync();
     }
 
+    private async Task AddRunWithStatusAsync(string name, WorkflowRunStatus status)
+    {
+        using var scope = factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<RunletDbContext>();
+
+        dbContext.WorkflowRuns.Add(new WorkflowRun
+        {
+            Name = name,
+            Image = "alpine:latest",
+            Status = status,
+            StartedAt = status is WorkflowRunStatus.Pending ? null : DateTimeOffset.UtcNow.AddSeconds(-10),
+            CompletedAt = status is WorkflowRunStatus.Pending or WorkflowRunStatus.Running
+                ? null
+                : DateTimeOffset.UtcNow,
+            Steps =
+            [
+                new WorkflowStep
+                {
+                    Order = 1,
+                    Command = "echo hello",
+                    Status = status switch
+                    {
+                        WorkflowRunStatus.Pending => WorkflowStepStatus.Pending,
+                        WorkflowRunStatus.Succeeded => WorkflowStepStatus.Succeeded,
+                        WorkflowRunStatus.Failed => WorkflowStepStatus.Failed,
+                        WorkflowRunStatus.Cancelled => WorkflowStepStatus.Skipped,
+                        _ => WorkflowStepStatus.Running
+                    }
+                }
+            ]
+        });
+
+        await dbContext.SaveChangesAsync();
+    }
+
     private async Task AddWorkerRegistrationAsync(
         string workerId,
         string machineName,
         int maxConcurrentRuns,
-        DateTimeOffset lastHeartbeatAt)
+        DateTimeOffset lastHeartbeatAt,
+        DateTimeOffset? stoppedAt = null)
     {
         using var scope = factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<RunletDbContext>();
@@ -330,7 +406,8 @@ public sealed class RunEndpointsTests(RunletApiFactory factory) :
             MachineName = machineName,
             MaxConcurrentRuns = maxConcurrentRuns,
             StartedAt = DateTimeOffset.UtcNow.AddMinutes(-5),
-            LastHeartbeatAt = lastHeartbeatAt
+            LastHeartbeatAt = lastHeartbeatAt,
+            StoppedAt = stoppedAt
         });
 
         await dbContext.SaveChangesAsync();

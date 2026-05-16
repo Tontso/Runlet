@@ -1,6 +1,7 @@
 const state = {
   runs: [],
   workers: [],
+  stats: null,
   page: 1,
   pageSize: 50,
   totalCount: 0,
@@ -30,6 +31,7 @@ const els = {
   runsList: document.querySelector("#runsList"),
   runsPagination: document.querySelector("#runsPagination"),
   runCount: document.querySelector("#runCount"),
+  statsGrid: document.querySelector("#statsGrid"),
   workersList: document.querySelector("#workersList"),
   workerCount: document.querySelector("#workerCount"),
   runDetail: document.querySelector("#runDetail"),
@@ -190,21 +192,58 @@ async function failRun(id) {
 
 async function refresh() {
   try {
-    const [page, workers] = await Promise.all([
+    const [page, workers, stats] = await Promise.all([
       fetchJson(buildRunsUrl()),
-      fetchJson("/workers")
+      fetchJson("/workers"),
+      fetchJson("/stats")
     ]);
 
     state.runs = page.items;
     state.workers = workers;
+    state.stats = stats;
     state.page = page.page;
     state.pageSize = page.pageSize;
     state.totalCount = page.totalCount;
     state.totalPages = page.totalPages;
+    renderStats();
     renderWorkers();
     await applyRunFilters();
   } catch (error) {
     setMessage(error.message || "Refresh failed.");
+  }
+}
+
+function renderStats() {
+  const stats = state.stats;
+  els.statsGrid.replaceChildren();
+
+  if (!stats) {
+    return;
+  }
+
+  const queue = stats.queue;
+  const capacity = stats.capacity;
+  const items = [
+    ["Pending", queue.pending],
+    ["Running", queue.running],
+    ["Succeeded", queue.succeeded],
+    ["Failed", queue.failed],
+    ["Slots Used", `${capacity.usedSlots}/${capacity.totalSlots}`],
+    ["Free Slots", capacity.freeSlots],
+    ["Workers", capacity.workerCount],
+    ["Idle", capacity.idleWorkerCount],
+    ["Stale", capacity.staleWorkerCount],
+    ["Offline", capacity.offlineWorkerCount]
+  ];
+
+  for (const [label, value] of items) {
+    const item = document.createElement("div");
+    item.className = "stat-item";
+    item.innerHTML = `
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    `;
+    els.statsGrid.append(item);
   }
 }
 

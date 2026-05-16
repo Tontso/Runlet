@@ -305,52 +305,103 @@ public static class RunEndpoints
         })
         .WithName("GetWorkflowRunLogs");
 
+        app.MapGet("/stats", async (
+            RunletDbContext dbContext,
+            CancellationToken cancellationToken) =>
+        {
+            var now = DateTimeOffset.UtcNow;
+            var statusCounts = await dbContext.WorkflowRuns
+                .AsNoTracking()
+                .GroupBy(run => run.Status)
+                .Select(group => new StatusCount(group.Key, group.Count()))
+                .ToListAsync(cancellationToken);
+
+            var statusCountByStatus = statusCounts.ToDictionary(
+                statusCount => statusCount.Status,
+                statusCount => statusCount.Count);
+            var workers = await GetWorkerSummariesAsync(dbContext, now, cancellationToken);
+
+            var queue = new QueueStatsResponse(
+                GetStatusCount(statusCountByStatus, WorkflowRunStatus.Pending),
+                GetStatusCount(statusCountByStatus, WorkflowRunStatus.Running),
+                GetStatusCount(statusCountByStatus, WorkflowRunStatus.Succeeded),
+                GetStatusCount(statusCountByStatus, WorkflowRunStatus.Failed),
+                GetStatusCount(statusCountByStatus, WorkflowRunStatus.Cancelled),
+                statusCountByStatus.Values.Sum());
+
+            var capacityWorkers = workers
+                .Where(worker => worker.Status != "Offline")
+                .ToList();
+            var totalSlots = capacityWorkers.Sum(worker => worker.MaxConcurrentRuns);
+            var usedSlots = capacityWorkers.Sum(worker => worker.ActiveRunCount);
+            var capacity = new CapacityStatsResponse(
+                workers.Count,
+                workers.Count(worker => worker.Status == "Running"),
+                workers.Count(worker => worker.Status == "Idle"),
+                workers.Count(worker => worker.Status == "Stale"),
+                workers.Count(worker => worker.Status == "Offline"),
+                usedSlots,
+                totalSlots,
+                Math.Max(0, totalSlots - usedSlots));
+
+            return Results.Ok(new RunletStatsResponse(queue, capacity));
+        })
+        .WithName("GetRunletStats");
+
         app.MapGet("/workers", async (
             RunletDbContext dbContext,
             CancellationToken cancellationToken) =>
         {
             var now = DateTimeOffset.UtcNow;
-            var registrations = await dbContext.WorkerRegistrations
-                .AsNoTracking()
-                .OrderBy(worker => worker.MachineName)
-                .ThenBy(worker => worker.WorkerId)
-                .ToListAsync(cancellationToken);
-
-            var runningRuns = await dbContext.WorkflowRuns
-                .AsNoTracking()
-                .Where(run => run.Status == WorkflowRunStatus.Running && run.ClaimedByWorkerId != null)
-                .OrderBy(run => run.StartedAt)
-                .ToListAsync(cancellationToken);
-
-            var runningRunsByWorker = runningRuns
-                .GroupBy(run => run.ClaimedByWorkerId!)
-                .ToDictionary(group => group.Key, group => group.ToList());
-
-            var workers = registrations
-                .Select(registration =>
-                {
-                    runningRunsByWorker.Remove(registration.WorkerId, out var workerRuns);
-                    workerRuns ??= [];
-
-                    return ToWorkerSummaryResponse(
-                        registration,
-                        workerRuns,
-                        now);
-                })
-                .Concat(runningRunsByWorker.Select(group => ToUnregisteredWorkerSummaryResponse(
-                    group.Key,
-                    group.Value,
-                    now)))
-                .OrderBy(worker => GetWorkerStatusOrder(worker.Status))
-                .ThenByDescending(worker => worker.ActiveRunCount)
-                .ThenBy(worker => worker.WorkerId)
-                .ToList();
+            var workers = await GetWorkerSummariesAsync(dbContext, now, cancellationToken);
 
             return Results.Ok(workers);
         })
         .WithName("ListWorkers");
 
         return app;
+    }
+
+    private static async Task<List<WorkerSummaryResponse>> GetWorkerSummariesAsync(
+        RunletDbContext dbContext,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var registrations = await dbContext.WorkerRegistrations
+            .AsNoTracking()
+            .OrderBy(worker => worker.MachineName)
+            .ThenBy(worker => worker.WorkerId)
+            .ToListAsync(cancellationToken);
+
+        var runningRuns = await dbContext.WorkflowRuns
+            .AsNoTracking()
+            .Where(run => run.Status == WorkflowRunStatus.Running && run.ClaimedByWorkerId != null)
+            .OrderBy(run => run.StartedAt)
+            .ToListAsync(cancellationToken);
+
+        var runningRunsByWorker = runningRuns
+            .GroupBy(run => run.ClaimedByWorkerId!)
+            .ToDictionary(group => group.Key, group => group.ToList());
+
+        return registrations
+            .Select(registration =>
+            {
+                runningRunsByWorker.Remove(registration.WorkerId, out var workerRuns);
+                workerRuns ??= [];
+
+                return ToWorkerSummaryResponse(
+                    registration,
+                    workerRuns,
+                    now);
+            })
+            .Concat(runningRunsByWorker.Select(group => ToUnregisteredWorkerSummaryResponse(
+                group.Key,
+                group.Value,
+                now)))
+            .OrderBy(worker => GetWorkerStatusOrder(worker.Status))
+            .ThenByDescending(worker => worker.ActiveRunCount)
+            .ThenBy(worker => worker.WorkerId)
+            .ToList();
     }
 
     private static WorkflowRun CreateRunFromRequest(
@@ -556,4 +607,13 @@ public static class RunEndpoints
             _ => 4
         };
     }
+
+    private static int GetStatusCount(
+        IReadOnlyDictionary<WorkflowRunStatus, int> statusCounts,
+        WorkflowRunStatus status)
+    {
+        return statusCounts.TryGetValue(status, out var count) ? count : 0;
+    }
+
+    private sealed record StatusCount(WorkflowRunStatus Status, int Count);
 }
