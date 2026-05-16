@@ -1,3 +1,7 @@
+using Microsoft.EntityFrameworkCore;
+using Runlet.Persistence;
+using Runlet.Shared.Workflows;
+
 namespace Runlet.Worker.Cancellation;
 
 public sealed class WorkflowRunCancellationWatcher(IServiceScopeFactory scopeFactory)

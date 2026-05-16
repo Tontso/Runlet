@@ -4,4 +4,5 @@
   <Project Path="Runlet.Persistence/Runlet.Persistence.csproj" />
   <Project Path="Runlet.Shared/Runlet.Shared.csproj" />
   <Project Path="Runlet.Worker/Runlet.Worker.csproj" />
+  <Project Path="Runlet.Worker.Tests/Runlet.Worker.Tests.csproj" />
 </Solution>
