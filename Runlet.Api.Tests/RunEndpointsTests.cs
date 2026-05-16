@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Runlet.Api.Contracts;
 using Runlet.Persistence;
 using Runlet.Shared.Executions;
+using Runlet.Shared.Workers;
 using Runlet.Shared.Workflows;
 using Xunit;
 
@@ -164,6 +165,9 @@ public sealed class RunEndpointsTests(RunletApiFactory factory) :
     {
         var client = factory.CreateClient();
 
+        await AddWorkerRegistrationAsync("worker-a", "machine-a", 2, DateTimeOffset.UtcNow.AddSeconds(-4));
+        await AddWorkerRegistrationAsync("worker-b", "machine-b", 1, DateTimeOffset.UtcNow.AddSeconds(-8));
+        await AddWorkerRegistrationAsync("worker-c", "machine-c", 3, DateTimeOffset.UtcNow.AddSeconds(-2));
         await AddClaimedRunAsync("worker-a", "run-a1", DateTimeOffset.UtcNow.AddSeconds(-4));
         await AddClaimedRunAsync("worker-a", "run-a2", DateTimeOffset.UtcNow.AddSeconds(-1));
         await AddClaimedRunAsync("worker-b", "run-b1", DateTimeOffset.UtcNow.AddSeconds(-8));
@@ -175,9 +179,12 @@ public sealed class RunEndpointsTests(RunletApiFactory factory) :
 
         var workers = await response.Content.ReadFromJsonAsync<IReadOnlyList<WorkerSummaryResponse>>(JsonOptions);
         Assert.NotNull(workers);
-        Assert.Equal(2, workers.Count);
+        Assert.Equal(3, workers.Count);
 
         var workerA = Assert.Single(workers, worker => worker.WorkerId == "worker-a");
+        Assert.Equal("machine-a", workerA.MachineName);
+        Assert.Equal("Running", workerA.Status);
+        Assert.Equal(2, workerA.MaxConcurrentRuns);
         Assert.Equal(2, workerA.ActiveRunCount);
         Assert.Equal(["run-a1", "run-a2"], workerA.Runs.Select(run => run.Name).Order());
         Assert.NotNull(workerA.LastHeartbeatAt);
@@ -185,6 +192,11 @@ public sealed class RunEndpointsTests(RunletApiFactory factory) :
         var workerB = Assert.Single(workers, worker => worker.WorkerId == "worker-b");
         Assert.Equal(1, workerB.ActiveRunCount);
         Assert.Equal("run-b1", Assert.Single(workerB.Runs).Name);
+
+        var workerC = Assert.Single(workers, worker => worker.WorkerId == "worker-c");
+        Assert.Equal("Idle", workerC.Status);
+        Assert.Equal(0, workerC.ActiveRunCount);
+        Assert.Empty(workerC.Runs);
     }
 
     private static async Task<WorkflowRun> CreateRunAsync(HttpClient client, string name)
@@ -298,6 +310,27 @@ public sealed class RunEndpointsTests(RunletApiFactory factory) :
                         : WorkflowStepStatus.Succeeded
                 }
             ]
+        });
+
+        await dbContext.SaveChangesAsync();
+    }
+
+    private async Task AddWorkerRegistrationAsync(
+        string workerId,
+        string machineName,
+        int maxConcurrentRuns,
+        DateTimeOffset lastHeartbeatAt)
+    {
+        using var scope = factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<RunletDbContext>();
+
+        dbContext.WorkerRegistrations.Add(new WorkerRegistration
+        {
+            WorkerId = workerId,
+            MachineName = machineName,
+            MaxConcurrentRuns = maxConcurrentRuns,
+            StartedAt = DateTimeOffset.UtcNow.AddMinutes(-5),
+            LastHeartbeatAt = lastHeartbeatAt
         });
 
         await dbContext.SaveChangesAsync();

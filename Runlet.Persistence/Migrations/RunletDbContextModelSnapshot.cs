@@ -60,6 +60,43 @@ namespace Runlet.Persistence.Migrations
                     b.ToTable("workflow_log_entries", (string)null);
                 });
 
+            modelBuilder.Entity("Runlet.Shared.Workers.WorkerRegistration", b =>
+                {
+                    b.Property<string>("WorkerId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("worker_id");
+
+                    b.Property<DateTimeOffset>("LastHeartbeatAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_heartbeat_at");
+
+                    b.Property<string>("MachineName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("machine_name");
+
+                    b.Property<int>("MaxConcurrentRuns")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_concurrent_runs");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<DateTimeOffset?>("StoppedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("stopped_at");
+
+                    b.HasKey("WorkerId");
+
+                    b.HasIndex("LastHeartbeatAt")
+                        .HasDatabaseName("ix_worker_registrations_last_heartbeat_at");
+
+                    b.ToTable("worker_registrations", (string)null);
+                });
+
             modelBuilder.Entity("Runlet.Shared.Workflows.WorkflowRun", b =>
                 {
                     b.Property<Guid>("Id")

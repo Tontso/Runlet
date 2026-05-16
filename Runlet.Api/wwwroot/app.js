@@ -215,7 +215,7 @@ function renderWorkers() {
   if (state.workers.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty-list";
-    empty.textContent = "No active workers.";
+    empty.textContent = "No workers have registered.";
     els.workersList.append(empty);
     return;
   }
@@ -225,12 +225,12 @@ function renderWorkers() {
     item.className = "worker-item";
     item.innerHTML = `
       <div class="worker-head">
-        <strong>${escapeHtml(shortWorkerId(worker.workerId))}</strong>
+        <strong>${escapeHtml(worker.machineName || shortWorkerId(worker.workerId))}</strong>
         <span class="badges">${workerBadge(worker)}</span>
       </div>
       <div class="muted worker-id-full">${escapeHtml(worker.workerId)}</div>
       <div class="meta-row">
-        <span>${worker.activeRunCount} active ${worker.activeRunCount === 1 ? "run" : "runs"}</span>
+        <span>Slots ${worker.activeRunCount}/${worker.maxConcurrentRuns}</span>
         <span class="muted">Heartbeat ${formatWorkerHeartbeat(worker)}</span>
       </div>
       <div class="worker-runs">
@@ -494,9 +494,7 @@ function staleBadge(run) {
 }
 
 function workerBadge(worker) {
-  return isWorkerStale(worker)
-    ? '<span class="status Stale">Stale</span>'
-    : '<span class="status Running">Active</span>';
+  return statusBadge(worker.status);
 }
 
 async function fetchJson(url) {
@@ -592,7 +590,7 @@ function formatWorkerHeartbeat(worker) {
   }
 
   const heartbeat = formatRelative(worker.lastHeartbeatAt);
-  return isWorkerStale(worker) ? `${heartbeat} stale` : heartbeat;
+  return ["Stale", "Offline"].includes(worker.status) ? `${heartbeat} ${worker.status.toLowerCase()}` : heartbeat;
 }
 
 function isHeartbeatStale(run) {
@@ -601,14 +599,6 @@ function isHeartbeatStale(run) {
   }
 
   return secondsSince(run.lastHeartbeatAt) > staleHeartbeatSeconds;
-}
-
-function isWorkerStale(worker) {
-  if (!worker.lastHeartbeatAt) {
-    return true;
-  }
-
-  return secondsSince(worker.lastHeartbeatAt) > staleHeartbeatSeconds;
 }
 
 function shortWorkerId(workerId) {

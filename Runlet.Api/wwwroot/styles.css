@@ -389,9 +389,19 @@ textarea {
   color: var(--warn);
 }
 
+.status.Idle {
+  background: #f3f6fb;
+  color: #394150;
+}
+
 .status.Stale {
   background: var(--warn-soft);
   color: var(--warn);
+}
+
+.status.Offline {
+  background: #f3f4f6;
+  color: var(--muted);
 }
 
 .detail-empty {

@@ -3,6 +3,7 @@ using Runlet.Api.Contracts;
 using Runlet.Api.Validation;
 using Runlet.Persistence;
 using Runlet.Shared.Executions;
+using Runlet.Shared.Workers;
 using Runlet.Shared.Workflows;
 
 namespace Runlet.Api.Endpoints;
@@ -308,20 +309,40 @@ public static class RunEndpoints
             RunletDbContext dbContext,
             CancellationToken cancellationToken) =>
         {
+            var now = DateTimeOffset.UtcNow;
+            var registrations = await dbContext.WorkerRegistrations
+                .AsNoTracking()
+                .OrderBy(worker => worker.MachineName)
+                .ThenBy(worker => worker.WorkerId)
+                .ToListAsync(cancellationToken);
+
             var runningRuns = await dbContext.WorkflowRuns
                 .AsNoTracking()
                 .Where(run => run.Status == WorkflowRunStatus.Running && run.ClaimedByWorkerId != null)
                 .OrderBy(run => run.StartedAt)
                 .ToListAsync(cancellationToken);
 
-            var workers = runningRuns
+            var runningRunsByWorker = runningRuns
                 .GroupBy(run => run.ClaimedByWorkerId!)
-                .Select(group => new WorkerSummaryResponse(
+                .ToDictionary(group => group.Key, group => group.ToList());
+
+            var workers = registrations
+                .Select(registration =>
+                {
+                    runningRunsByWorker.Remove(registration.WorkerId, out var workerRuns);
+                    workerRuns ??= [];
+
+                    return ToWorkerSummaryResponse(
+                        registration,
+                        workerRuns,
+                        now);
+                })
+                .Concat(runningRunsByWorker.Select(group => ToUnregisteredWorkerSummaryResponse(
                     group.Key,
-                    group.Count(),
-                    group.Max(run => run.LastHeartbeatAt),
-                    group.Select(ToWorkerRunResponse).ToList()))
-                .OrderByDescending(worker => worker.ActiveRunCount)
+                    group.Value,
+                    now)))
+                .OrderBy(worker => GetWorkerStatusOrder(worker.Status))
+                .ThenByDescending(worker => worker.ActiveRunCount)
                 .ThenBy(worker => worker.WorkerId)
                 .ToList();
 
@@ -463,5 +484,76 @@ public static class RunEndpoints
             run.Status,
             run.StartedAt,
             run.LastHeartbeatAt);
+    }
+
+    private static WorkerSummaryResponse ToWorkerSummaryResponse(
+        WorkerRegistration registration,
+        IReadOnlyList<WorkflowRun> runs,
+        DateTimeOffset now)
+    {
+        return new WorkerSummaryResponse(
+            registration.WorkerId,
+            registration.MachineName,
+            GetWorkerStatus(registration, runs.Count, now),
+            registration.MaxConcurrentRuns,
+            runs.Count,
+            registration.LastHeartbeatAt,
+            registration.StartedAt,
+            registration.StoppedAt,
+            runs.Select(ToWorkerRunResponse).ToList());
+    }
+
+    private static WorkerSummaryResponse ToUnregisteredWorkerSummaryResponse(
+        string workerId,
+        IReadOnlyList<WorkflowRun> runs,
+        DateTimeOffset now)
+    {
+        var lastHeartbeatAt = runs.Max(run => run.LastHeartbeatAt);
+
+        return new WorkerSummaryResponse(
+            workerId,
+            workerId,
+            IsStale(lastHeartbeatAt, now) ? "Stale" : "Running",
+            Math.Max(1, runs.Count),
+            runs.Count,
+            lastHeartbeatAt,
+            runs.Min(run => run.StartedAt),
+            StoppedAt: null,
+            runs.Select(ToWorkerRunResponse).ToList());
+    }
+
+    private static string GetWorkerStatus(
+        WorkerRegistration registration,
+        int activeRunCount,
+        DateTimeOffset now)
+    {
+        if (registration.StoppedAt is not null && registration.StoppedAt >= registration.LastHeartbeatAt)
+        {
+            return "Offline";
+        }
+
+        if (IsStale(registration.LastHeartbeatAt, now))
+        {
+            return "Stale";
+        }
+
+        return activeRunCount > 0 ? "Running" : "Idle";
+    }
+
+    private static bool IsStale(DateTimeOffset? lastHeartbeatAt, DateTimeOffset now)
+    {
+        return lastHeartbeatAt is null || now - lastHeartbeatAt > TimeSpan.FromSeconds(20);
+    }
+
+    private static int GetWorkerStatusOrder(string status)
+    {
+        return status switch
+        {
+            "Running" => 0,
+            "Idle" => 1,
+            "Stale" => 2,
+            "Offline" => 3,
+            _ => 4
+        };
     }
 }

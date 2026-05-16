@@ -8,6 +8,7 @@ using Runlet.Worker.Execution;
 using Runlet.Worker.Heartbeats;
 using Runlet.Worker.Lifecycle;
 using Runlet.Worker.Logging;
+using Runlet.Worker.Registry;
 
 namespace Runlet.Worker;
 
@@ -19,6 +20,7 @@ public sealed class Worker(
     WorkflowRunHeartbeat runHeartbeat,
     WorkflowRunFinalizer runFinalizer,
     WorkflowLogWriter logWriter,
+    WorkerRegistry workerRegistry,
     IOptions<WorkerOptions> options,
     ILogger<Worker> logger) : BackgroundService
 {
@@ -33,6 +35,18 @@ public sealed class Worker(
             workerId,
             maxConcurrentRuns);
 
+        await workerRegistry.RegisterAsync(
+            workerId,
+            Environment.MachineName,
+            maxConcurrentRuns,
+            stoppingToken);
+
+        using var registryHeartbeatCancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        var registryHeartbeatTask = workerRegistry.SendHeartbeatAsync(
+            workerId,
+            maxConcurrentRuns,
+            registryHeartbeatCancellation.Token);
+
         var runSlots = Enumerable
             .Range(1, maxConcurrentRuns)
             .Select(slotNumber => ExecuteRunSlotAsync(slotNumber, stoppingToken))
@@ -44,6 +58,12 @@ public sealed class Worker(
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
+        }
+        finally
+        {
+            await registryHeartbeatCancellation.CancelAsync();
+            await SwallowExpectedCancellationAsync(registryHeartbeatTask);
+            await workerRegistry.MarkStoppedAsync(workerId, CancellationToken.None);
         }
 
         logger.LogInformation("Runlet worker {WorkerId} stopped.", workerId);
